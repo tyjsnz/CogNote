@@ -1,0 +1,21 @@
+{
+  "name": "knowledge-base-agent",
+  "version": "1.0.0",
+  "description": "本地知识库智能体：Markdown 笔记归类、全文检索、DeepSeek AI 扩展与复习",
+  "main": "server.js",
+  "bin": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "rescan": "node scripts/rescan.js",
+    "build": "pkg . --out-path dist"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pkg": {
+    "scripts": ["src/**/*.js"],
+    "assets": ["public/**/*"],
+    "targets": ["node22-win-x64"]
+  },
+  "license": "MIT"
+}

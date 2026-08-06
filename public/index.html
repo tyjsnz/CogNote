@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知识库智能体</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="vendor/vditor/dist/index.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">📚 知识库智能体</div>
+    <div class="search-box">
+      <input id="search-input" type="text" placeholder="全文搜索：关键词 / 算法名 / 命令..." autocomplete="off">
+      <button id="search-btn" title="搜索">搜索</button>
+    </div>
+    <div class="top-actions">
+      <span id="ai-badge" class="badge">AI 未配置</span>
+      <button id="btn-rescan" title="重新扫描笔记目录">🔄 重新扫描</button>
+      <a id="btn-settings" class="btn-link" title="设置" href="#">⚙️</a>
+    </div>
+  </header>
+
+  <div id="layout">
+    <aside id="sidebar">
+      <div class="panel-title">笔记目录
+        <span id="note-count" class="muted"></span>
+      </div>
+      <div id="tree" class="tree"></div>
+      <div class="panel-title tags-title">标签
+        <button id="btn-browse-tags" title="浏览全部标签">全部</button>
+      </div>
+      <div id="tags" class="tags"></div>
+    </aside>
+
+    <main id="main">
+      <div id="search-results" class="hidden">
+        <div class="results-head">
+          <span id="results-title"></span>
+          <button id="btn-clear-search" class="link-btn">返回目录</button>
+        </div>
+        <div id="results-list"></div>
+      </div>
+
+      <div id="viewer" class="hidden">
+        <div class="note-toolbar">
+          <div class="note-path" id="note-path"></div>
+          <div class="note-actions">
+            <button id="btn-edit" title="编辑">✏️ 编辑</button>
+            <button id="btn-new" title="在当前目录新建笔记">➕ 新建</button>
+            <button id="btn-move" title="移动 / 归类">📁 归类</button>
+            <button id="btn-delete" title="删除笔记">🗑️ 删除</button>
+          </div>
+        </div>
+        <div id="note-tags" class="note-tags"></div>
+        <article id="note-body" class="markdown-body"></article>
+      </div>
+
+      <div id="editor" class="hidden">
+        <div class="editor-toolbar">
+          <div class="note-actions">
+            <button id="btn-save">💾 保存</button>
+            <button id="btn-cancel-edit">取消</button>
+          </div>
+        </div>
+        <input id="edit-title" type="text" placeholder="笔记标题（首行 # 标题）">
+        <input id="edit-tags" type="text" placeholder="标签，用逗号分隔（写入 frontmatter）">
+        <div id="vditor-wrap"></div>
+      </div>
+    </main>
+
+    <aside id="ai-panel">
+      <div class="panel-title">AI 助手</div>
+
+      <div class="ai-section">
+        <div class="ai-section-title">💡 智能归类</div>
+        <p class="hint">AI 分析当前笔记，建议分类、标签、摘要。</p>
+        <button id="btn-ai-classify" class="ai-btn">分析当前笔记</button>
+        <div id="ai-classify-out" class="ai-out"></div>
+      </div>
+
+      <div class="ai-section">
+        <div class="ai-section-title">🧠 知识扩展</div>
+        <p class="hint">结合 DeepSeek 扩展当前笔记（追加到末尾 / 新建文件）。</p>
+        <input id="ai-expand-prompt" type="text" placeholder="扩展方向（留空自动）" class="ai-input">
+        <div class="btn-row">
+          <button id="btn-ai-expand-append" class="ai-btn">追加到当前</button>
+          <button id="btn-ai-expand-new" class="ai-btn">生成新笔记</button>
+        </div>
+        <div id="ai-expand-out" class="ai-out"></div>
+      </div>
+
+      <div class="ai-section">
+        <div class="ai-section-title">📝 复习与自测</div>
+        <p class="hint">对当前笔记（或所属分类全部笔记）生成复习摘要 / 自测题。</p>
+        <div class="btn-row">
+          <button id="btn-ai-summary" class="ai-btn">复习摘要</button>
+          <button id="btn-ai-quiz" class="ai-btn">生成自测题</button>
+        </div>
+        <div id="ai-review-out" class="ai-out"></div>
+      </div>
+
+      <div class="ai-section">
+        <div class="ai-section-title">💬 问答</div>
+        <p class="hint">基于当前笔记（或选中分类全部笔记）提问。</p>
+        <textarea id="ai-ask-question" class="ai-input" rows="2" placeholder="例如：卡尔曼滤波的预测/更新公式是什么？"></textarea>
+        <button id="btn-ai-ask" class="ai-btn">提问</button>
+        <div id="ai-ask-out" class="ai-out"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 归类/移动对话框 -->
+  <div id="dialog-move" class="modal hidden">
+    <div class="modal-box">
+      <h3>📁 归类 / 移动</h3>
+      <p class="muted">将 <b id="move-src"></b> 移动到：</p>
+      <div class="modal-tree" id="move-tree"></div>
+      <div class="modal-foot">
+        <button id="btn-move-cancel" class="link-btn">取消</button>
+        <button id="btn-move-ok" class="primary-btn">移动</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dialog-settings" class="modal hidden">
+    <div class="modal-box">
+      <h3>⚙️ 设置</h3>
+      <label>笔记目录
+        <input id="cfg-notesdir" type="text">
+      </label>
+      <label>DeepSeek API Key
+        <input id="cfg-apikey" type="password" placeholder="sk-...">
+      </label>
+      <label>模型
+        <input id="cfg-model" type="text">
+      </label>
+      <p class="hint">配置保存后自动重新扫描索引。</p>
+      <div class="modal-foot">
+        <button id="btn-settings-cancel" class="link-btn">关闭</button>
+        <button id="btn-settings-ok" class="primary-btn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="ctx-menu" class="ctx-menu hidden"></div>
+
+  <script src="vendor/vditor/dist/index.min.js"></script>
+  <script src="markdown.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
