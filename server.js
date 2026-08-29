@@ -249,16 +249,36 @@ async function handleApi(pathname, req, res, url) {
   if (pathname === '/api/note/move' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.from || !body.to) throw new Error('缺少 from/to');
+    // 移动前记录旧的子笔记相对路径，用于移动后重建索引
+    const fromBase = String(body.from).replace(/\.[mM][dD]$/, '');
+    const toBase = String(body.to).replace(/\.[mM][dD]$/, '');
+    const hadSub = fs.existsSync(path.join(config.notesDir, notesApi.fromPosix(fromBase)));
+    const oldSubRels = hadSub ? await notesApi.walkMdRel(config.notesDir, fromBase) : [];
     const r = await notesApi.moveNote(config.notesDir, body.from, body.to);
-    indexer.rename(notesApi.toPosix(body.from), path.join(config.notesDir, notesApi.fromPosix(body.to)));
+    if (hadSub) {
+      indexer.remove(path.join(config.notesDir, notesApi.fromPosix(r.from)));
+      for (const rel of oldSubRels) indexer.remove(path.join(config.notesDir, notesApi.fromPosix(fromBase + '/' + rel)));
+      indexer.add(path.join(config.notesDir, notesApi.fromPosix(r.to)));
+      const newSubRels = await notesApi.walkMdRel(config.notesDir, toBase);
+      for (const rel of newSubRels) indexer.add(path.join(config.notesDir, notesApi.fromPosix(toBase + '/' + rel)));
+    } else {
+      indexer.rename(notesApi.toPosix(body.from), path.join(config.notesDir, notesApi.fromPosix(body.to)));
+    }
     return sendJson(res, 200, { ok: true, ...r });
   }
 
   if (pathname === '/api/note/delete' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
+    const rel = notesApi.toPosix(body.rel);
+    const base = rel.replace(/\.[mM][dD]$/, '');
+    const hadSub = fs.existsSync(path.join(config.notesDir, notesApi.fromPosix(base)));
+    const oldSubRels = hadSub ? await notesApi.walkMdRel(config.notesDir, base) : [];
     await notesApi.deleteNote(config.notesDir, body.rel);
-    indexer.remove(path.join(config.notesDir, notesApi.fromPosix(body.rel)));
+    indexer.remove(path.join(config.notesDir, notesApi.fromPosix(rel)));
+    if (hadSub) {
+      for (const r of oldSubRels) indexer.remove(path.join(config.notesDir, notesApi.fromPosix(base + '/' + r)));
+    }
     return sendJson(res, 200, { ok: true });
   }
 
@@ -268,6 +288,44 @@ async function handleApi(pathname, req, res, url) {
     const abs = notesApi.safeResolve(config.notesDir, body.rel);
     await fsp.mkdir(abs, { recursive: true });
     return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
+  }
+
+  if (pathname === '/api/folder' && req.method === 'DELETE') {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少路径');
+    const abs = notesApi.safeResolve(config.notesDir, body.rel);
+    if (abs === path.resolve(config.notesDir)) throw new Error('不能删除根目录');
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error('目录不存在: ' + body.rel);
+    // 拒绝删除「子笔记目录」（同目录下存在同名 .md）
+    if (fs.existsSync(path.join(path.dirname(abs), path.basename(abs) + '.md'))) {
+      throw new Error('该目录是子笔记目录，请删除对应笔记');
+    }
+    const entries = await fsp.readdir(abs);
+    if (entries.length) throw new Error('目录非空（' + entries.length + ' 项），仅允许删除空目录');
+    await fsp.rmdir(abs);
+    return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
+  }
+
+  if (pathname === '/api/file' && req.method === 'GET') {
+    const rel = url.searchParams.get('rel');
+    if (!rel) throw new Error('缺少 rel 参数');
+    const abs = notesApi.safeResolve(config.notesDir, rel);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('文件不存在: ' + rel);
+    const ext = path.extname(abs).toLowerCase();
+    const mime = {
+      '.pdf': 'application/pdf',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+    }[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': mime });
+    fs.createReadStream(abs).pipe(res);
+    return;
   }
 
   if (pathname === '/api/reveal' && req.method === 'POST') {

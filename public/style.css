@@ -148,11 +148,55 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
+  position: sticky;
+  top: -16px;
+  z-index: 10;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
 }
 .note-path { font-size: 13px; color: var(--muted); word-break: break-all; }
 .note-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .note-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .note-tags .tag-chip { cursor: default; }
+
+/* Viewer 正文 + 标题目录（封面）*/
+.viewer-body { display: flex; gap: 16px; align-items: flex-start; }
+#note-body { flex: 1; min-width: 0; }
+#viewer-cover {
+  width: 220px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 10px;
+}
+.cover-title { font-weight: 600; font-size: 13px; color: var(--muted); margin-bottom: 8px; padding: 0 4px; }
+.cover-item {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cover-item:hover { background: var(--accent-bg); color: var(--accent); }
+.cover-item.lv1 { font-weight: 600; }
+.cover-item.lv2 { padding-left: 18px; }
+.cover-item.lv3 { padding-left: 30px; }
+.cover-item.lv4 { padding-left: 42px; }
+.cover-item.lv5 { padding-left: 54px; }
+.cover-item.lv6 { padding-left: 66px; }
+#btn-cover.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { scroll-margin-top: 10px; }
 
 /* Markdown body */
 .markdown-body {
@@ -162,6 +206,20 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   padding: 24px 28px;
   line-height: 1.75;
   font-size: 15px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+@media (min-width: 768px) {
+  .markdown-body { max-width: 860px; }
+}
+@media (min-width: 1200px) {
+  .markdown-body { max-width: 1120px; }
+}
+@media (min-width: 1600px) {
+  .markdown-body { max-width: 1360px; }
+}
+@media (min-width: 2000px) {
+  .markdown-body { max-width: 1520px; }
 }
 .markdown-body h1 { font-size: 1.8em; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 16px; }
 .markdown-body h2 { font-size: 1.4em; margin: 1.2em 0 .6em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
@@ -183,6 +241,25 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .markdown-body a { color: var(--accent); }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
 .markdown-body .empty { color: var(--muted); }
+.markdown-body .math-block { display: block; overflow-x: auto; overflow-y: hidden; margin: .8em 0; padding: 2px 0; }
+.markdown-body .math-inline { white-space: nowrap; }
+.markdown-body .math-fallback { color: #d63031; background: none; }
+
+/* PDF viewer */
+.pdf-viewer {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.pdf-viewer iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
 
 /* Editor */
 #editor { max-width: 1000px; margin: 0 auto; }
@@ -201,6 +278,15 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 }
 #edit-tags { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
 #vditor-wrap { margin-top: 2px; }
+/* vditor 编辑器工具栏浮动 */
+#vditor-wrap .vditor-toolbar,
+#vditor-wrap .vditor__toolbar {
+  position: sticky;
+  top: -16px; /* 紧贴 #main 内边距 */
+  z-index: 10;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
 #vditor-wrap .vditor { border-radius: 8px; border: 1px solid var(--border); }
 #vditor-wrap .vditor--fullscreen { border-radius: 0; }
 
@@ -243,6 +329,36 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; font-size: 13px;
 }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* AI 对话窗口 */
+.modal-box.chat-box { width: 720px; max-width: 94vw; display: flex; flex-direction: column; padding: 16px 18px; height: 78vh; max-height: 640px; overflow: hidden; }
+.chat-box h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex: none; }
+.chat-ctx { font-size: 12px; font-weight: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-close { margin-left: auto; font-size: 14px; }
+.chat-body { flex: 1; overflow-y: auto; padding: 8px 4px; display: flex; flex-direction: column; gap: 10px; }
+.chat-empty { color: var(--muted); text-align: center; margin-top: 40%; font-size: 13px; }
+.chat-msg { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.chat-msg.user { align-items: flex-end; }
+.chat-msg.ai { align-items: flex-start; }
+.chat-bubble {
+  padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.7; max-width: 100%;
+  word-break: break-word;
+}
+.chat-msg.user .chat-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; white-space: pre-wrap; }
+.chat-msg.ai .chat-bubble { background: var(--code-bg); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+.chat-msg.ai .chat-bubble > *:first-child { margin-top: 0; }
+.chat-msg.ai .chat-bubble > *:last-child { margin-bottom: 0; }
+.chat-tip { color: var(--muted); }
+.chat-error { color: var(--danger); }
+.chat-actions { display: flex; gap: 6px; padding: 0 4px; }
+.chat-act {
+  border: 1px solid var(--border); background: var(--panel); color: var(--accent);
+  border-radius: 6px; font-size: 12px; padding: 3px 8px; cursor: pointer;
+}
+.chat-act:hover { background: var(--accent-bg); }
+.chat-input-row { display: flex; align-items: flex-end; gap: 8px; margin-top: 10px; flex: none; }
+.chat-input { flex: 1; margin: 0; max-height: 120px; }
+.chat-input-row .primary-btn { flex: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
 
 /* Toast */
 .toast {

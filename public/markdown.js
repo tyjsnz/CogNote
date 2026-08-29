@@ -1,5 +1,7 @@
-/* 轻量 Markdown 渲染器（支持常用语法，用于本地预览） */
+/* 轻量 Markdown 渲染器（支持常用语法 + KaTeX 数学公式，用于本地预览） */
 (function (global) {
+  // 标题锚点序号：整篇文档内递增以保证唯一，递归渲染（引用块）时继续累加
+  let headingSeq = 0;
   function escapeHtml(s) {
     return s
       .replace(/&/g, '&amp;')
@@ -8,9 +10,49 @@
       .replace(/"/g, '&quot;');
   }
 
+  function renderBlockMath(latex) {
+    if (global.katex) {
+      try {
+        return '<span class="math-block">' + global.katex.renderToString(latex, { displayMode: true, throwOnError: false, strict: false }) + '</span>';
+      } catch (e) {
+        /* fall through */
+      }
+    }
+    return '<pre class="math-fallback">' + escapeHtml(latex) + '</pre>';
+  }
+
+  function renderInlineMath(latex) {
+    if (global.katex) {
+      try {
+        return '<span class="math-inline">' + global.katex.renderToString(latex, { throwOnError: false, strict: false }) + '</span>';
+      } catch (e) {
+        return '<span class="math-fallback">' + escapeHtml(latex) + '</span>';
+      }
+    }
+    return '<code class="math-fallback">' + escapeHtml(latex) + '</code>';
+  }
+
   function inline(src) {
     let s = src;
+    // 行内代码先处理，避免公式替换误伤代码块
     s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + escapeHtml(c) + '</code>');
+
+    // 数学公式提取为占位符，防止被加粗/斜体等规则破坏
+    const mathCache = [];
+    // 段内块级公式 $$...$$
+    s = s.replace(/\$\$(.+?)\$\$/g, (_, m) => {
+      mathCache.push(renderBlockMath(m));
+      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+    });
+    s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => {
+      mathCache.push(renderInlineMath(m));
+      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+    });
+    s = s.replace(/\$([^\$\n]+?)\$/g, (_, m) => {
+      mathCache.push(renderInlineMath(m));
+      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+    });
+
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<img alt="$1" src="$2" title="$3" style="max-width:100%">');
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<a href="$2" title="$3" target="_blank">$1</a>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -18,6 +60,10 @@
     s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
     s = s.replace(/\^([^^]+)\^/g, '<sup>$1</sup>');
+
+    if (mathCache.length) {
+      s = s.replace(/\u0000KX(\d+)\u0000/g, (_, n) => mathCache[+n]);
+    }
     return s;
   }
 
@@ -26,14 +72,38 @@
     const lines = src.replace(/\r\n/g, '\n').split('\n');
     let html = '';
     let i = 0;
-
     function para(text) {
       if (!text.trim()) return '';
       return '<p>' + inline(escapeHtml(text).replace(/^#{1,6}\s+/, '')) + '</p>';
     }
+    // 判断第 idx 行是否为表格起始行（当前行含 | 且下一行为分隔行）
+    function isTableStart(idx) {
+      const l = lines[idx];
+      return (
+        !!l &&
+        l.includes('|') &&
+        idx + 1 < lines.length &&
+        /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[idx + 1]) &&
+        lines[idx + 1].includes('-')
+      );
+    }
 
     while (i < lines.length) {
       const line = lines[i];
+
+      // 数学块：单行 $$...$$ / \[...\]
+      let mBlock = line.match(/^\s*\$\$(.+?)\$\$\s*$/);
+      if (mBlock) {
+        html += renderBlockMath(mBlock[1]) + '\n';
+        i++;
+        continue;
+      }
+      mBlock = line.match(/^\s*\\\[(.+?)\\\]\s*$/);
+      if (mBlock) {
+        html += renderBlockMath(mBlock[1]) + '\n';
+        i++;
+        continue;
+      }
 
       // 代码块
       const fence = line.match(/^```([\w+-]*)/);
@@ -50,11 +120,40 @@
         continue;
       }
 
+      // 多行数学块：以 $$ 或 \[ 开头的行，持续到 $$ 或 \] 为止
+      const blockOpen = line.match(/^\s*(\$\$|\\\[)/);
+      if (blockOpen) {
+        const isDollar = blockOpen[1] === '$$';
+        const closeRe = isDollar ? /\$\$/ : /\\\]/;
+        const buf = [];
+        let body = line.replace(/^\s*\$\$\s*/, '').replace(/^\s*\\\[\s*/, '');
+        if (body && closeRe.test(body)) {
+          body = body.replace(/\$\$\s*$/, '').replace(/\\\]\s*$/, '');
+          html += renderBlockMath(body) + '\n';
+          i++;
+          continue;
+        }
+        if (body) buf.push(body);
+        i++;
+        while (i < lines.length) {
+          if (closeRe.test(lines[i])) {
+            const endLine = lines[i].replace(closeRe, '');
+            if (endLine.trim()) buf.push(endLine);
+            i++;
+            break;
+          }
+          buf.push(lines[i]);
+          i++;
+        }
+        html += renderBlockMath(buf.join('\n')) + '\n';
+        continue;
+      }
+
       // 标题
       const h = line.match(/^(#{1,6})\s+(.*)$/);
       if (h) {
         const lv = h[1].length;
-        html += '<h' + lv + '>' + inline(escapeHtml(h[2])) + '</h' + lv + '>\n';
+        html += '<h' + lv + ' id="toc-' + headingSeq++ + '">' + inline(escapeHtml(h[2])) + '</h' + lv + '>\n';
         i++;
         continue;
       }
@@ -67,7 +166,7 @@
       }
 
       // 表格
-      if (line.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+      if (isTableStart(i)) {
         const header = line.split('|').map((s) => s.trim()).filter((s, idx, arr) => !(idx === 0 && s === '') && !(idx === arr.length - 1 && s === ''));
         const aligns = lines[i + 1].split('|').map((s) => s.trim());
         i += 2;
@@ -146,7 +245,11 @@
         !/^#{1,6}\s/.test(lines[i]) &&
         !/^\s*[-*+]\s+/.test(lines[i]) &&
         !/^\s*\d+[.)]\s+/.test(lines[i]) &&
-        !/^\s*>\s?/.test(lines[i])
+        !/^\s*>\s?/.test(lines[i]) &&
+        !/^\s*\$\$/.test(lines[i]) &&
+        !/^\s*\\\[/.test(lines[i]) &&
+        !isTableStart(i) &&
+        !/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(lines[i])
       ) {
         buf.push(lines[i]);
         i++;
@@ -156,5 +259,8 @@
     return html;
   }
 
-  global.renderMarkdown = render;
+  global.renderMarkdown = (src) => {
+    headingSeq = 0;
+    return render(src);
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

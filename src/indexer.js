@@ -69,6 +69,7 @@ class Indexer {
   _walk() {
     const out = [];
     const stack = [this.notesDir];
+    const visited = new Set();
     while (stack.length) {
       const dir = stack.pop();
       let entries;
@@ -84,6 +85,28 @@ class Indexer {
           stack.push(full);
         } else if (e.isFile() && MD_RE.test(e.name)) {
           out.push(full);
+        } else if (e.isSymbolicLink()) {
+          // 同步盘（fnos_sync_data 等）中的文件可能是 reparse point / 符号链接
+          let st;
+          try {
+            st = fs.statSync(full);
+          } catch {
+            continue;
+          }
+          if (st.isDirectory()) {
+            if (this.isIgnoredDir(e.name)) continue;
+            let real;
+            try {
+              real = fs.realpathSync(full);
+            } catch {
+              real = full;
+            }
+            if (visited.has(real)) continue; // 防止符号链接目录形成环
+            visited.add(real);
+            stack.push(full);
+          } else if (st.isFile() && MD_RE.test(e.name)) {
+            out.push(full);
+          }
         }
       }
     }
@@ -165,17 +188,17 @@ class Indexer {
   }
 
   add(absPath) {
-    const relPath = path.relative(this.notesDir, absPath);
+    const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
     return { relPath, doc: this._indexFile(absPath) };
   }
 
   remove(absPath) {
-    const relPath = path.relative(this.notesDir, absPath);
+    const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
     this._removeDoc(relPath);
   }
 
   rename(fromRel, toAbs) {
-    this._removeDoc(fromRel);
+    this._removeDoc(String(fromRel).split(path.sep).join('/'));
     const { relPath, doc } = this.add(toAbs);
     return { relPath, doc };
   }

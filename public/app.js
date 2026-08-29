@@ -15,6 +15,35 @@
     prevRel: null,        // 新建/编辑取消时返回的原笔记
   };
 
+  // ---------- 界面状态持久化（折叠/当前笔记/目录开关）----------
+  function loadUI() {
+    const base = { expanded: new Set(), view: null, coverOn: true };
+    try {
+      const raw = localStorage.getItem('kb.ui');
+      if (raw) {
+        const o = JSON.parse(raw);
+        return {
+          expanded: new Set(Array.isArray(o.expanded) ? o.expanded : []),
+          view: o.view || null,
+          coverOn: o.coverOn !== false,
+        };
+      }
+    } catch (e) { /* ignore */ }
+    return base;
+  }
+
+  let ui = loadUI();
+
+  function saveUI() {
+    try {
+      localStorage.setItem('kb.ui', JSON.stringify({
+        expanded: [...ui.expanded],
+        view: ui.view,
+        coverOn: ui.coverOn,
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
   // ---------- helpers ----------
   function toast(msg, isErr) {
     const el = $('#toast');
@@ -72,6 +101,13 @@
     return found;
   }
 
+  // 统计节点（含递归子节点）下的笔记文件数量
+  function countFiles(node) {
+    if (!node) return 0;
+    if (node.type === 'file') return 1 + (node.children || []).reduce((a, c) => a + countFiles(c), 0);
+    return (node.children || []).reduce((a, c) => a + countFiles(c), 0);
+  }
+
   function uniqueRel(dir, baseName) {
     const mk = (n) => (dir ? dir + '/' : '') + n + '.md';
     if (!relExists(mk(baseName))) return mk(baseName);
@@ -99,9 +135,30 @@
   }
 
   // ---------- tree ----------
+  function seedExpanded(node, depth = 0) {
+    if (!node || node.type !== 'dir') return;
+    if (depth < 2) ui.expanded.add(node.relPath);
+    (node.children || []).forEach((c) => seedExpanded(c, depth + 1));
+  }
+
+  function pruneExpanded(node) {
+    // 仅保留树中仍然存在的可展开节点（目录或带子笔记的笔记）
+    const valid = new Set();
+    (function walk(n) {
+      if (!n) return;
+      if ((n.children || []).length) valid.add(n.relPath);
+      (n.children || []).forEach(walk);
+    })(node);
+    for (const rel of [...ui.expanded]) {
+      if (rel && !valid.has(rel)) ui.expanded.delete(rel);
+    }
+  }
+
   async function loadTree() {
     const d = await api('/api/tree');
     state.tree = d.tree;
+    if (!ui.expanded.size) seedExpanded(d.tree);
+    pruneExpanded(d.tree);
     $('#tree').innerHTML = renderTree(state.tree);
   }
 
@@ -109,22 +166,21 @@
     if (!node) return '';
     let html = '';
     const children = node.children || [];
-    if (node.type === 'dir') {
-      const open = depth < 2;
+    const isDir = node.type === 'dir';
+    const rel = node.relPath;
+    const branch = children.length > 0;
+    const open = branch && (isDir ? (ui.expanded.size ? ui.expanded.has(rel) : depth < 2) : ui.expanded.has(rel));
+    html +=
+      '<div class="tree-node ' + (isDir ? 'dir' : 'file') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '">' +
+      '<span class="arrow">' + (branch ? (open ? '▾' : '▸') : '') + '</span>' +
+      '<span class="icon">' + (isDir ? '📁' : '📄') + '</span>' +
+      '<span>' + esc(isDir ? node.name : node.name.replace(/\.md$/i, '')) + '</span>' +
+      (isDir && node.noteCount ? '<span class="count">' + node.noteCount + '</span>' : '') +
+      '</div>';
+    if (branch) {
       html +=
-        '<div class="tree-node dir" data-rel="' + esc(node.relPath) + '" data-type="dir">' +
-        '<span class="arrow">' + (children.length ? (open ? '▾' : '▸') : '') + '</span>' +
-        '<span class="icon">📁</span><span>' + esc(node.name) + '</span>' +
-        (node.noteCount ? '<span class="count">' + node.noteCount + '</span>' : '') +
-        '</div>';
-      html +=
-        '<div class="tree-children' + (open ? '' : ' collapsed') + '" data-parent="' + esc(node.relPath) + '">' +
+        '<div class="tree-children' + (open ? '' : ' collapsed') + '" data-parent="' + esc(rel) + '">' +
         children.map((c) => renderTree(c, depth + 1)).join('') +
-        '</div>';
-    } else {
-      html +=
-        '<div class="tree-node file" data-rel="' + esc(node.relPath) + '" data-type="file">' +
-        '<span class="arrow"></span><span class="icon">📄</span><span>' + esc(node.name.replace(/\.md$/i, '')) + '</span>' +
         '</div>';
     }
     return html;
@@ -134,21 +190,45 @@
     $('#tree').addEventListener('click', async (e) => {
       const node = e.target.closest('.tree-node');
       if (!node) return;
-      if (node.dataset.type === 'dir') {
+      const rel = node.dataset.rel;
+      const type = node.dataset.type;
+      const childrenBox = document.querySelector('.tree-children[data-parent="' + escAttr(rel) + '"]');
+      if (type === 'dir' && !childrenBox) {
+        state.currentDir = rel;
+        $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
+        node.classList.add('active');
+        clearSearch();
+        selectDir(rel);
+        return;
+      }
+      if (childrenBox) {
+        if (type === 'file' && !e.target.closest('.arrow')) {
+          openNote(rel);
+          return;
+        }
+        const isCollapsed = childrenBox.classList.toggle('collapsed');
         const arrow = node.querySelector('.arrow');
-        const childrenBox = document.querySelector('.tree-children[data-parent="' + escAttr(node.dataset.rel) + '"]');
-        if (!childrenBox) return;
-        childrenBox.classList.toggle('collapsed');
-        arrow.textContent = childrenBox.classList.contains('collapsed') ? '▸' : '▾';
-        if (!childrenBox.classList.contains('collapsed')) {
-          state.currentDir = node.dataset.rel;
+        arrow.textContent = isCollapsed ? '▸' : '▾';
+        if (isCollapsed) ui.expanded.delete(rel);
+        else ui.expanded.add(rel);
+        saveUI();
+        if (type === 'dir' && !isCollapsed) {
+          state.currentDir = rel;
           $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
           node.classList.add('active');
           clearSearch();
-          selectDir(node.dataset.rel);
+          selectDir(rel);
         }
+        return;
+      }
+      if (type === 'dir') {
+        state.currentDir = rel;
+        $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
+        node.classList.add('active');
+        clearSearch();
+        selectDir(rel);
       } else {
-        openNote(node.dataset.rel);
+        openNote(rel);
       }
     });
   }
@@ -220,6 +300,24 @@
       toast('已创建根分类: ' + clean);
       await reloadTree();
     },
+    async 'delete-folder'() {
+      const n = window._ctxNode;
+      if (!n || n.type !== 'dir') return;
+      if (!confirm('确定删除空分类？\n' + n.rel)) return;
+      try {
+        await api('/api/folder', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rel: n.rel }),
+        });
+        toast('已删除分类: ' + n.rel);
+        if (state.currentDir === n.rel) state.currentDir = relDir(n.rel);
+        await reloadTree();
+        selectDir(state.currentDir || '');
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
     'new-note'() {
       const n = window._ctxNode || {};
       state.currentDir = n.type === 'root' ? '' : n.rel;
@@ -232,22 +330,146 @@
       openNote(n.rel);
       openEditor();
     },
+    async 'new-sub-note'() {
+      const n = window._ctxNode;
+      if (!n || n.type !== 'file') return;
+      const base = n.rel.replace(/\.md$/i, '');
+      const name = prompt('输入子笔记名称：', '子笔记');
+      if (name === null) return;
+      const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
+      if (!clean) return;
+      const rel = base + '/' + clean + '.md';
+      await api('/api/note', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rel, content: '# ' + clean + '\n\n' }),
+      });
+      toast('已创建子笔记: ' + rel);
+      await reloadTree();
+      expandNodePath(rel);
+      state.currentRel = rel;
+      await openNote(rel);
+      openEditor();
+    },
     move() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
       state.currentRel = n.rel;
       openMoveDialog();
     },
+    async 'export-pdf'() {
+      const n = window._ctxNode;
+      if (!n || n.type !== 'file') return;
+      const win = window.open('', '_blank');
+      if (!win) {
+        toast('浏览器拦截了弹出窗口，请允许弹窗后重试', true);
+        return;
+      }
+      const base = location.href.slice(0, location.href.lastIndexOf('/') + 1);
+      const printCss = [
+        '@page { margin: 18mm 14mm }',
+        '* { box-sizing: border-box }',
+        'html,body { margin: 0; padding: 0 }',
+        'body { font-family: "Microsoft YaHei","PingFang SC","HarmonyOS Sans SC","Noto Sans CJK SC",sans-serif; color: #1f2328; line-height: 1.75; font-size: 15px; }',
+        '.toolbar { position: fixed; top: 12px; right: 16px; z-index: 99; display: flex; gap: 8px; align-items: center; }',
+        '.toolbar button { font: 14px/1.6 "Microsoft YaHei",sans-serif; padding: 6px 14px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }',
+        '.toolbar button:hover { background: #f0f0f0 }',
+        '.page { max-width: 840px; margin: 0 auto; padding: 48px 32px 64px; }',
+        '.note-title { font-size: 26px; font-weight: 700; line-height: 1.4; margin: 0 0 6px; }',
+        '.note-path { color: #8a9199; font-size: 13px; margin-bottom: 22px; }',
+        'h1,h2,h3,h4,h5,h6 { line-height: 1.4; margin: 1.4em 0 0.6em; font-weight: 600; }',
+        'h1 { font-size: 22px } h2 { font-size: 19px; border-bottom: 1px solid #ececec; padding-bottom: 6px }',
+        'h3 { font-size: 17px } h4 { font-size: 16px }',
+        'p { margin: 0.6em 0 }',
+        'a { color: #0366d6; text-decoration: none }',
+        'img { max-width: 100%; height: auto }',
+        'pre { background: #f6f8fa; border: 1px solid #e4e6ea; border-radius: 6px; padding: 12px 14px; overflow-x: auto; }',
+        'pre code { font-family: Consolas,"Courier New",monospace; font-size: 13px; line-height: 1.6; }',
+        'code { font-family: Consolas,"Courier New",monospace; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 13px; }',
+        'pre code { background: none; padding: 0 }',
+        'blockquote { margin: 0.8em 0; padding: 6px 16px; border-left: 4px solid #dfe2e5; color: #57606a; background: #fafbfc; }',
+        'blockquote p { margin: 0.4em 0 }',
+        'table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }',
+        'th,td { border: 1px solid #d0d7de; padding: 6px 10px; font-size: 14px; text-align: left; }',
+        'th { background: #f6f8fa; font-weight: 600 }',
+        'ul,ol { padding-left: 1.6em; margin: 0.5em 0 }',
+        'li { margin: 0.25em 0 }',
+        'del { color: #8a9199 }',
+        'sup { font-size: 0.75em }',
+        '.math-block { margin: 0.8em 0; overflow-x: auto; }',
+        '@media print { body { font-size: 12pt } .toolbar { display: none } .page { max-width: none; padding: 0 } .note-path { display: block } h2 { page-break-after: avoid } pre,blockquote,table,img { page-break-inside: avoid } }'
+      ].join('\n');
+      win.document.open();
+      win.document.write(
+        '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">' +
+        '<link rel="stylesheet" href="' + base + 'vendor/vditor/dist/js/katex/katex.min.css">' +
+        '<title>导出 PDF…</title><style>' + printCss + '</style></head><body>' +
+        '<div class="toolbar"><button onclick="window.focus();window.print();">⬇ 导出 PDF</button></div>' +
+        '<div class="page"><div id="pdf-body">加载中…</div></div></body></html>'
+      );
+      win.document.close();
+      let d;
+      try {
+        d = await api('/api/note?rel=' + encodeURIComponent(n.rel));
+      } catch (e) {
+        const b = win.document.getElementById('pdf-body');
+        if (b) b.textContent = '导出失败：' + e.message;
+        toast(e.message, true);
+        return;
+      }
+      const title = (d.meta && d.meta.title) || String(n.rel).split('/').pop().replace(/\.md$/i, '');
+      win.document.title = title;
+      const body = win.document.getElementById('pdf-body');
+      if (!body) { win.close(); return; }
+      body.innerHTML =
+        '<div class="note-title">' + esc(title) + '</div>' +
+        '<div class="note-path">' + esc(n.rel) + '</div>' +
+        renderMarkdown(stripFrontmatter(d.content));
+      try { win.print(); } catch (e) { /* 部分浏览器需手动点击导出按钮 */ }
+    },
+    async rename() {
+      const n = window._ctxNode;
+      if (!n || n.type !== 'file') return;
+      const oldName = n.rel.split('/').pop();
+      const dir = n.rel.includes('/') ? n.rel.slice(0, n.rel.lastIndexOf('/')) : '';
+      const base = oldName.replace(/\.md$/i, '');
+      const name = prompt('重命名文件：', base);
+      if (name === null) return;
+      const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
+      if (!clean) return;
+      const newName = /\.md$/i.test(clean) ? clean : clean + '.md';
+      const to = dir ? dir + '/' + newName : newName;
+      if (to === n.rel) {
+        toast('文件名未变化');
+        return;
+      }
+      try {
+        await api('/api/note/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: n.rel, to }),
+        });
+        toast('已重命名 → ' + to);
+        await Promise.all([loadTree(), loadTags(), loadStats()]);
+        if (state.currentRel === n.rel) await openNote(to);
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
     async delete() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
-      if (!confirm('确定删除该笔记？\n' + n.rel)) return;
+      const subNum = countFiles(n) - 1;
+      const msg = subNum > 0
+        ? '确定删除该笔记？\n' + n.rel + '\n\n其下还有 ' + subNum + ' 个子笔记，将连同其子笔记目录一并删除！'
+        : '确定删除该笔记？\n' + n.rel;
+      if (!confirm(msg)) return;
       await api('/api/note/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rel: n.rel }),
       });
-      toast('已删除');
+      toast(subNum > 0 ? '已删除（含子笔记）' : '已删除');
       await reloadTree();
       if (state.currentRel === n.rel) state.currentRel = null;
       selectDir(state.currentDir || '');
@@ -271,11 +493,19 @@
             ]
           : [
               { action: 'edit', label: '✏️ 编辑' },
+              { action: 'new-sub-note', label: '📚 新建子笔记' },
+              { action: 'rename', label: '✏️ 重命名' },
               { action: 'move', label: '📁 归类 / 移动' },
+              { action: 'export-pdf', label: '📄 导出 PDF' },
               { action: 'reveal', label: '🔗 打开本地位置' },
               { sep: true },
               { action: 'delete', label: '🗑️ 删除', danger: true },
             ];
+        if (isDir) {
+          const box = document.querySelector('.tree-children[data-parent="' + escAttr(rel) + '"]');
+          const isEmpty = !box || box.children.length === 0;
+          if (isEmpty) items.push({ sep: true }, { action: 'delete-folder', label: '🗑️ 删除分类（空目录）', danger: true });
+        }
         showCtxMenu(e.clientX, e.clientY, items);
       } else {
         window._ctxNode = { type: 'root', rel: '' };
@@ -301,8 +531,10 @@
       const box = document.querySelector('.tree-children[data-parent="' + escAttr(cur) + '"]');
       if (box && box.classList.contains('collapsed')) {
         box.classList.remove('collapsed');
-        const arrow = document.querySelector('.tree-node.dir[data-rel="' + escAttr(cur) + '"] .arrow');
+        const arrow = document.querySelector('.tree-node[data-rel="' + escAttr(cur) + '"] .arrow');
         if (arrow) arrow.textContent = '▾';
+        ui.expanded.add(cur);
+        saveUI();
       }
     }
   }
@@ -312,8 +544,10 @@
     const box = document.querySelector('.tree-children[data-parent="' + escAttr(rel) + '"]');
     if (box && box.classList.contains('collapsed')) {
       box.classList.remove('collapsed');
-      const arrow = document.querySelector('.tree-node.dir[data-rel="' + escAttr(rel) + '"] .arrow');
+      const arrow = document.querySelector('.tree-node[data-rel="' + escAttr(rel) + '"] .arrow');
       if (arrow) arrow.textContent = '▾';
+      ui.expanded.add(rel);
+      saveUI();
     }
   }
 
@@ -353,6 +587,24 @@
     $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
     $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(rel) + '"]')?.classList.add('active');
 
+    const isPdf = /\.pdf$/i.test(rel);
+    if (isPdf) {
+      // PDF 预览：直接嵌入 iframe
+      state.currentDir = relDir(rel);
+      $('#note-path').textContent = rel;
+      $('#note-tags').innerHTML = '';
+      const fileUrl = '/api/file?rel=' + encodeURIComponent(rel);
+      $('#note-body').innerHTML =
+        '<div class="pdf-viewer">' +
+        '<iframe src="' + fileUrl + '" title="' + esc(rel) + '" allow="fullscreen"></iframe>' +
+        '</div>';
+      ui.view = { type: 'note', rel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
+
     const d = await api('/api/note?rel=' + encodeURIComponent(rel));
     state.currentDir = relDir(rel);
     $('#note-path').textContent = d.relPath;
@@ -361,6 +613,9 @@
       ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
       : '';
     $('#note-body').innerHTML = renderMarkdown(stripFrontmatter(d.content));
+    ui.view = { type: 'note', rel };
+    saveUI();
+    renderCover();
     syncSelection();
   }
 
@@ -375,7 +630,35 @@
     $('#note-body').innerHTML =
       '<p class="empty">📁 分类：<b>' + esc(dirRel || '(根目录)') + '</b><br>' +
       '从左侧选择一篇笔记，或点击"＋新建"在该分类下创建笔记。</p>';
+    ui.view = { type: 'dir', rel: dirRel || '' };
+    saveUI();
+    renderCover();
     syncSelection();
+  }
+
+  // ---------- 标题目录（封面）----------
+  function renderCover() {
+    const box = $('#viewer-cover');
+    const body = $('#note-body');
+    if (!box || !body) return;
+    const heads = body.querySelectorAll('h1,h2,h3,h4,h5,h6');
+    if (!heads.length) {
+      box.innerHTML = '';
+      box.classList.add('hidden');
+      return;
+    }
+    box.innerHTML =
+      '<div class="cover-title">📑 目录</div>' +
+      Array.prototype.map.call(heads, (h) => {
+        const lv = parseInt(h.tagName.charAt(1), 10);
+        return '<a class="cover-item lv' + lv + '" href="#' + escAttr(h.id) + '" data-target="' + escAttr(h.id) + '">' + esc(h.textContent) + '</a>';
+      }).join('');
+    box.classList.toggle('hidden', !ui.coverOn);
+  }
+
+  function applyCover() {
+    $('#btn-cover').classList.toggle('active', ui.coverOn);
+    renderCover();
   }
 
   function syncSelection() {
@@ -394,7 +677,10 @@
     const out = [];
     if (!node) return out;
     if (node.type === 'file') {
-      if ((dirRel === '' && !node.relPath.includes('/')) || (dirRel && node.relPath.startsWith(dirRel + '/'))) out.push(node.relPath);
+      const inDir = dirRel === '' || node.relPath.startsWith(dirRel + '/');
+      if (inDir) out.push(node.relPath);
+      // 子笔记属于其所在目录，递归收集
+      (node.children || []).forEach((c) => out.push(...collectRelsInDir(c, dirRel)));
       return out;
     }
     if (node.type === 'dir') {
@@ -424,7 +710,7 @@
         vditor = new Vditor('vditor-wrap', {
           height: 'auto',
           minHeight: 460,
-          mode: 'ir',
+          mode: 'wysiwyg',
           theme: 'light',
           lang: 'zh_CN',
           cdn: '/vendor/vditor',
@@ -485,8 +771,12 @@
 
   function parseFrontmatter(content) {
     const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-    if (!m) return { tags: [], body: content };
-    const fm = m[1];
+    let body = content;
+    let fm = '';
+    if (m) {
+      fm = m[1];
+      body = content.slice(m[0].length);
+    }
     const tm = fm.match(/^tags:\s*\[?([^\]]*?)\]?$/m);
     const tags = tm
       ? tm[1]
@@ -494,7 +784,10 @@
           .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
           .filter(Boolean)
       : [];
-    return { tags, body: content.slice(m[0].length) };
+    // 从正文提取首个一级标题作为标题
+    const titleMatch = body.match(/^\s*#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : '';
+    return { title, tags, body };
   }
 
   async function saveNote() {
@@ -564,21 +857,34 @@
       toast('请先选择一篇笔记', true);
       return;
     }
+    await renderMoveDialog();
+    $('#dialog-move').classList.remove('hidden');
+  }
+
+  async function renderMoveDialog(expandRel) {
     const d = await api('/api/tree');
     $('#move-src').textContent = state.currentRel;
     const box = $('#move-tree');
-    box.innerHTML = renderMoveTree(d.tree);
-    $('#dialog-move').classList.remove('hidden');
-    window._moveTarget = '';
-    bindMoveTree(box, state.tree);
+    box.innerHTML = renderMoveTree(d.tree, 0, expandRel || '');
+    if (!expandRel) window._moveTarget = '';
+    bindMoveTree(box);
+    if (expandRel) {
+      box.querySelectorAll('.tree-node.dir.active').forEach((n) => n.classList.remove('active'));
+      const node = box.querySelector('.tree-node[data-rel="' + escAttr(expandRel) + '"]');
+      if (node) {
+        node.classList.add('active');
+        window._moveTarget = expandRel;
+      }
+    }
   }
 
-  function renderMoveTree(node, depth = 0) {
+  function renderMoveTree(node, depth = 0, targetRel = '') {
     if (!node) return '';
+    const inPath = (rel) => !!targetRel && (targetRel === rel || targetRel.startsWith(rel + '/'));
     let html = '';
     const children = node.children || [];
     if (node.type === 'dir') {
-      const open = depth < 2;
+      const open = depth < 2 || inPath(node.relPath);
       html +=
         '<div class="tree-node dir" data-rel="' + esc(node.relPath) + '" data-type="dir">' +
         '<span class="arrow">' + (children.length ? (open ? '▾' : '▸') : '') + '</span>' +
@@ -586,10 +892,40 @@
         '</div>';
       html +=
         '<div class="tree-children' + (open ? '' : ' collapsed') + '" data-parent="' + esc(node.relPath) + '">' +
-        children.map((c) => renderMoveTree(c, depth + 1)).join('') +
+        children.map((c) => renderMoveTree(c, depth + 1, targetRel)).join('') +
+        '</div>';
+    } else if (node.type === 'file' && children.length) {
+      // 该笔记拥有同名子目录（子笔记目录），作为可移动目标展示
+      const subRel = String(node.relPath).replace(/\.[mM][dD]$/, '');
+      const open = depth < 2 || inPath(subRel);
+      html +=
+        '<div class="tree-node dir" data-rel="' + esc(subRel) + '" data-type="dir">' +
+        '<span class="arrow">' + (open ? '▾' : '▸') + '</span>' +
+        '<span class="icon">📁</span><span>' + esc(subRel) + '</span>' +
+        '</div>';
+      html +=
+        '<div class="tree-children' + (open ? '' : ' collapsed') + '" data-parent="' + esc(subRel) + '">' +
+        children.map((c) => renderMoveTree(c, depth + 1, targetRel)).join('') +
         '</div>';
     }
     return html;
+  }
+
+  async function newMoveSubfolder() {
+    const parent = window._moveTarget || state.currentDir || '';
+    const name = prompt('输入新分类名称：', '新分类');
+    if (!name) return;
+    const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!clean) return;
+    const rel = parent ? parent + '/' + clean : clean;
+    await api('/api/folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rel }),
+    });
+    toast('已创建分类: ' + rel);
+    await renderMoveDialog(rel);
+    await loadTree();
   }
 
   function bindMoveTree(container, tree) {
@@ -698,6 +1034,84 @@
     box.innerHTML = '⚠️ ' + esc(err.message || String(err));
   }
 
+  let _classify = null; // 最近一次智能归类结果
+
+  function classifyListValue(line) {
+    const m = line.match(/:\s*\[?([^\]]*?)\]?\s*$/);
+    return m ? m[1].split(/[,\s]+/).filter(Boolean) : [];
+  }
+
+  function mergeListLine(line, add) {
+    const bracket = /\[[^\]]*\]/.test(line);
+    const merged = [...new Set([...classifyListValue(line), ...add])];
+    return (bracket ? '[' + merged.join(', ') + ']' : merged.join(', '));
+  }
+
+  function insertSummaryAfterTitle(body, summary) {
+    const stripped = body.replace(/^(?:[ \t]*\r?\n)+/, '');
+    const m = stripped.match(/^(#{1,6}\s+[^\n]*)(?=\r?\n|$)/);
+    if (!m) return '> **摘要：** ' + summary + '\n\n' + body;
+    const rest = stripped.slice(m[0].length).replace(/^(?:[ \t]*\r?\n)+/, '');
+    return m[0] + '\n\n> **摘要：** ' + summary + '\n\n' + rest;
+  }
+
+  async function applyClassify() {
+    const d = _classify;
+    const box = $('#ai-classify-out');
+    if (!state.currentRel || !d) return;
+    if (d.relPath && d.relPath !== state.currentRel) {
+      toast('当前笔记已变化，请重新分析', true);
+      box.className = 'ai-out error';
+      box.innerHTML = '⚠️ 当前笔记已变化，请点击"分析当前笔记"重新分析后再应用。';
+      return;
+    }
+    const btn = $('#btn-apply-classify');
+    if (btn) btn.disabled = true;
+    try {
+      const tags = (d.tags || []).map((s) => String(s).trim()).filter(Boolean);
+      const keywords = (d.keywords || []).map((s) => String(s).trim()).filter(Boolean);
+      const summary = String(d.summary || '').trim();
+      const note = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+      let content = note.content;
+      let fm = null;
+      let body = content;
+      const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+      if (fmMatch) {
+        fm = fmMatch[1];
+        body = content.slice(fmMatch[0].length);
+      }
+      if (fm) {
+        const lines = fm.split(/\r?\n/);
+        const tagIdx = lines.findIndex((l) => /^tags\s*:/.test(l));
+        if (tagIdx >= 0) lines[tagIdx] = 'tags: ' + mergeListLine(lines[tagIdx], tags);
+        else if (tags.length) lines.push('tags: [' + tags.join(', ') + ']');
+        const kwIdx = lines.findIndex((l) => /^keywords\s*:/.test(l));
+        if (kwIdx >= 0) lines[kwIdx] = 'keywords: ' + mergeListLine(lines[kwIdx], keywords);
+        else if (keywords.length) lines.push('keywords: [' + keywords.join(', ') + ']');
+        fm = lines.join('\n');
+      } else {
+        const lines = [];
+        if (tags.length) lines.push('tags: [' + tags.join(', ') + ']');
+        if (keywords.length) lines.push('keywords: [' + keywords.join(', ') + ']');
+        fm = lines.join('\n') || null;
+      }
+      if (summary) body = insertSummaryAfterTitle(body, summary);
+      const newContent = fm ? '---\n' + fm + '\n---\n\n' + body : body;
+      await api('/api/note', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rel: state.currentRel, content: newContent }),
+      });
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      await openNote(state.currentRel);
+      box.className = 'ai-out done';
+      box.innerHTML = '✅ 已应用智能归类结果（摘要 / 标签 / 关键词）。';
+      toast('已应用智能归类结果');
+    } catch (e) {
+      aiError(box, e);
+    }
+  }
+
   async function aiClassify() {
     if (!state.currentRel) return toast('请先选择一篇笔记', true);
     const box = aiLoading('#ai-classify-out', 'AI 正在分析归类');
@@ -707,12 +1121,16 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rel: state.currentRel }),
       });
+      _classify = d;
       box.className = 'ai-out done';
       box.innerHTML =
         '<b>建议分类：</b>' + esc(d.category || '—') + '<br>' +
         '<b>建议标签：</b>' + (d.tags?.length ? d.tags.map(esc).join(', ') : '—') + '<br>' +
         '<b>摘要：</b>' + esc(d.summary || '—') + '<br>' +
-        '<b>关键词：</b>' + (d.keywords?.length ? d.keywords.map(esc).join(', ') : '—');
+        '<b>关键词：</b>' + (d.keywords?.length ? d.keywords.map(esc).join(', ') : '—') +
+        '<button id="btn-apply-classify" class="ai-btn">✅ 应用分析结果</button>';
+      const btn = $('#btn-apply-classify');
+      if (btn) btn.addEventListener('click', applyClassify);
     } catch (e) {
       aiError(box, e);
     }
@@ -738,7 +1156,8 @@
           body: JSON.stringify({ rel: state.currentRel, content: newContent }),
         });
         box.className = 'ai-out done';
-        box.innerHTML = '✅ 已追加到当前笔记。<div class="ai-out-inner">' + renderMarkdown(text) + '</div>';
+        box.innerHTML = '✅ 已追加到当前笔记';
+        toast('已追加到当前笔记');
         await openNote(state.currentRel);
       } else {
         const base = state.currentRel.replace(/\.md$/i, '');
@@ -757,6 +1176,25 @@
     }
   }
 
+  async function createAiNote(rel, content) {
+    await loadTree();
+    let target = rel;
+    let n = 2;
+    const dir = relDir(rel);
+    const stem = rel.split('/').pop().replace(/\.md$/i, '');
+    while (relExists(target)) {
+      target = (dir ? dir + '/' : '') + stem + '(' + n + ').md';
+      n++;
+    }
+    await api('/api/note', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rel: target, content }),
+    });
+    await Promise.all([loadTree(), loadStats()]);
+    return target;
+  }
+
   async function aiSummary() {
     if (!state.currentRel) return toast('请先选择一篇笔记', true);
     const box = aiLoading('#ai-review-out', 'AI 正在生成复习摘要');
@@ -766,8 +1204,11 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rel: state.currentRel }),
       });
+      const text = d.markdown.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+      const newRel = await createAiNote(state.currentRel.replace(/\.md$/i, '') + '·复习摘要.md', text);
       box.className = 'ai-out done';
-      box.innerHTML = renderMarkdown(d.markdown.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, ''));
+      box.innerHTML = '✅ 复习摘要已生成：' + esc(newRel);
+      toast('复习摘要已生成：' + newRel);
     } catch (e) {
       aiError(box, e);
     }
@@ -782,28 +1223,152 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rels: state.selectedRels.length ? state.selectedRels : [state.currentRel], count: 5 }),
       });
+      const text = d.markdown.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+      const newRel = await createAiNote(state.currentRel.replace(/\.md$/i, '') + '·自测题.md', text);
       box.className = 'ai-out done';
-      box.innerHTML = renderMarkdown(d.markdown.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, ''));
+      box.innerHTML = '✅ 自测题已生成：' + esc(newRel);
+      toast('自测题已生成：' + newRel);
     } catch (e) {
       aiError(box, e);
     }
   }
 
-  async function aiAsk() {
+  let _chatBusy = false; // 对话窗口请求进行中
+
+  function openAiChat() {
+    const ctx = state.currentRel || (state.selectedRels.length ? dirName(state.selectedRels[0]) + ' 等 ' + state.selectedRels.length + ' 篇' : '');
+    $('#ai-chat-ctx').textContent = ctx ? '参考：' + ctx : '';
+    const dlg = $('#dialog-ai-chat');
+    dlg.classList.remove('hidden');
     const q = $('#ai-ask-question').value.trim();
-    if (!q) return toast('请输入问题', true);
-    if (!state.selectedRels.length) return toast('请先选择笔记或分类', true);
-    const box = aiLoading('#ai-ask-out', 'AI 正在检索并回答');
+    if (q) {
+      $('#ai-ask-question').value = '';
+      $('#ai-chat-input').value = q;
+      sendAiChat();
+    } else {
+      const input = $('#ai-chat-input');
+      input.focus();
+      const body = $('#ai-chat-body');
+      if (!body.querySelector('.chat-msg')) {
+        body.innerHTML = '<div class="chat-empty">输入问题开始与 AI 对话</div>';
+      }
+    }
+  }
+
+  function closeAiChat() {
+    $('#dialog-ai-chat').classList.add('hidden');
+  }
+
+  function appendAiMsg(type, content, md) {
+    const body = $('#ai-chat-body');
+    const empty = body.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const row = document.createElement('div');
+    row.className = 'chat-msg ' + type;
+    if (type === 'user') {
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      bubble.textContent = content;
+      row.appendChild(bubble);
+    } else if (content === 'thinking') {
+      row.innerHTML = '<div class="chat-bubble"><div class="chat-tip">⏳ AI 检索并思考中...</div></div>';
+    } else if (content === 'error') {
+      row.innerHTML = '<div class="chat-bubble"><div class="chat-error">⚠️ ' + esc(md) + '</div></div>';
+    } else {
+      row.innerHTML =
+        '<div class="chat-bubble markdown-body">' + renderMarkdown(content) + '</div>' +
+        '<div class="chat-actions">' +
+        '<button class="chat-act" data-act="copy">📋 复制</button>' +
+        '<button class="chat-act" data-act="insert">📥 插入到当前笔记</button>' +
+        '<button class="chat-act" data-act="new">📄 生成新笔记</button>' +
+        '</div>';
+      row.querySelectorAll('.chat-act').forEach((b) =>
+        b.addEventListener('click', () => chatAnswerAction(b.dataset.act, md))
+      );
+    }
+    body.appendChild(row);
+    body.scrollTop = body.scrollHeight;
+    return row;
+  }
+
+  function copyText(txt) {
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(txt).catch(fallback);
+    }
+    return Promise.resolve(fallback());
+  }
+
+  async function chatAnswerAction(act, md) {
+    if (act === 'copy') {
+      await copyText(md);
+      toast('已复制回答');
+      return;
+    }
+    if (!state.currentRel) return toast('请先在左侧选择一篇笔记', true);
+    try {
+      if (act === 'insert') {
+        const note = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+        const newContent = note.content.endsWith('\n') ? note.content + '\n' + md : note.content + '\n\n' + md;
+        await api('/api/note', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rel: state.currentRel, content: newContent }),
+        });
+        await Promise.all([loadTree(), loadTags(), loadStats()]);
+        await openNote(state.currentRel);
+        toast('已插入到当前笔记');
+      } else if (act === 'new') {
+        const newRel = await createAiNote(state.currentRel.replace(/\.md$/i, '') + '·问答.md', md);
+        toast('已生成新笔记：' + newRel);
+      }
+    } catch (e) {
+      toast(act === 'insert' ? '插入失败: ' + e.message : '生成失败: ' + e.message, true);
+    }
+  }
+
+  async function sendAiChat() {
+    if (_chatBusy) return;
+    const input = $('#ai-chat-input');
+    const q = input.value.trim();
+    if (!q) return;
+    if (!state.selectedRels.length) {
+      input.value = '';
+      toast('请先选择笔记或分类', true);
+      return;
+    }
+    input.value = '';
+    appendAiMsg('user', q);
+    appendAiMsg('ai', 'thinking');
+    _chatBusy = true;
+    $('#btn-ai-chat-send').disabled = true;
     try {
       const d = await api('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rels: state.selectedRels, question: q }),
       });
-      box.className = 'ai-out done';
-      box.innerHTML = renderMarkdown(d.answer.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, ''));
+      const md = d.answer.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+      const thinking = $('#ai-chat-body').querySelector('.chat-msg:last-child');
+      if (thinking) thinking.remove();
+      appendAiMsg('ai', md, md);
     } catch (e) {
-      aiError(box, e);
+      const thinking = $('#ai-chat-body').querySelector('.chat-msg:last-child');
+      if (thinking) thinking.remove();
+      appendAiMsg('ai', 'error', e.message || String(e));
+    } finally {
+      _chatBusy = false;
+      $('#btn-ai-chat-send').disabled = false;
+      $('#ai-chat-input').focus();
     }
   }
 
@@ -865,6 +1430,19 @@
     $('#btn-move').addEventListener('click', openMoveDialog);
     $('#btn-delete').addEventListener('click', deleteNote);
 
+    $('#btn-cover').addEventListener('click', () => {
+      ui.coverOn = !ui.coverOn;
+      saveUI();
+      applyCover();
+    });
+    $('#viewer-cover').addEventListener('click', (e) => {
+      const a = e.target.closest('.cover-item');
+      if (!a) return;
+      e.preventDefault();
+      const el = document.getElementById(a.dataset.target);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
     $('#btn-save').addEventListener('click', saveNote);
     $('#btn-cancel-edit').addEventListener('click', cancelEdit);
 
@@ -873,7 +1451,15 @@
     $('#btn-ai-expand-new').addEventListener('click', () => aiExpand('new'));
     $('#btn-ai-summary').addEventListener('click', aiSummary);
     $('#btn-ai-quiz').addEventListener('click', aiQuiz);
-    $('#btn-ai-ask').addEventListener('click', aiAsk);
+    $('#btn-ai-ask').addEventListener('click', openAiChat);
+    $('#btn-ai-chat-send').addEventListener('click', sendAiChat);
+    $('#btn-ai-chat-close').addEventListener('click', closeAiChat);
+    $('#ai-chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendAiChat();
+      }
+    });
 
     $('#btn-settings').addEventListener('click', (e) => {
       e.preventDefault();
@@ -882,6 +1468,7 @@
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
 
+    $('#btn-move-newfolder').addEventListener('click', newMoveSubfolder);
     $('#btn-move-cancel').addEventListener('click', () => $('#dialog-move').classList.add('hidden'));
     $('#btn-move-ok').addEventListener('click', confirmMove);
 
@@ -893,18 +1480,37 @@
   }
 
   // ---------- init ----------
+  async function restoreView() {
+    const v = ui.view;
+    if (v && v.type === 'note' && relExists(v.rel)) {
+      try {
+        await openNote(v.rel);
+        expandNodePath(v.rel);
+        return;
+      } catch (e) { /* 笔记可能已被删除或移动 */ }
+    } else if (v && v.type === 'dir') {
+      selectDir(v.rel || '');
+      expandNodePath(v.rel || '');
+      return;
+    }
+    selectDir('');
+  }
+
   async function init() {
     bindEvents();
     bindTreeEvents();
     bindContextMenu();
+    applyCover();
     await fetchConfig();
     try {
       await Promise.all([loadTree(), loadTags(), loadStats()]);
     } catch (e) {
       toast('加载失败: ' + e.message, true);
     }
-    selectDir('');
+    await restoreView();
   }
+
+  window.addEventListener('beforeunload', saveUI);
 
   init();
 })();
