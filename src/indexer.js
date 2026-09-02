@@ -40,6 +40,32 @@ function buildHeadings(body) {
   return headings;
 }
 
+// v1.3: 提取笔记中的内部链接（指向其他 .md 文件的链接）
+function extractInternalLinks(body, currentRelPath) {
+  const links = [];
+  // 匹配 [text](path.md) 和 [text](path)
+  const re = /\[([^\]]*)\]\(([^)]+\.md)\)/gi;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const target = m[2];
+    // 解析相对路径
+    const currentDir = currentRelPath.includes('/') ? currentRelPath.replace(/\/[^/]*$/, '') : '';
+    const resolved = currentDir ? currentDir + '/' + target : target;
+    // 规范化路径（处理 ../）
+    const parts = resolved.split('/');
+    const stack = [];
+    for (const p of parts) {
+      if (p === '..') stack.pop();
+      else if (p && p !== '.') stack.push(p);
+    }
+    const normalized = stack.join('/');
+    if (normalized && normalized !== currentRelPath) {
+      links.push(normalized);
+    }
+  }
+  return [...new Set(links)];
+}
+
 class Indexer {
   constructor(notesDir, opts = {}) {
     this.notesDir = path.resolve(notesDir);
@@ -125,6 +151,7 @@ class Indexer {
     const { tags, body } = parseFrontmatter(content);
     const title = extractTitle(body, relPath);
     const headings = buildHeadings(body);
+    const links = extractInternalLinks(body, relPath);
     const st = fs.statSync(absPath);
     return {
       relPath,
@@ -136,6 +163,7 @@ class Indexer {
       content,
       body,
       headings,
+      links,
       titleT: tokenCountMap(title),
       tagT: tokenCountMap(tags.join(' ')),
       headT: tokenCountMap(headings.map((h) => h.text).join(' ')),
@@ -213,6 +241,128 @@ class Indexer {
       errors: this.errors.length,
       topTags: [...tagCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30),
     };
+  }
+
+  // v1.1: 保存索引到磁盘
+  save(indexPath) {
+    const data = {
+      version: 1,
+      savedAt: Date.now(),
+      docs: {},
+      index: {},
+    };
+    // 保存文档元数据（不保存 content/body 全文，只保存元信息）
+    for (const [relPath, doc] of this.docs) {
+      data.docs[relPath] = {
+        relPath: doc.relPath,
+        title: doc.title,
+        tags: doc.tags,
+        size: doc.size,
+        mtimeMs: doc.mtimeMs,
+        headings: doc.headings,
+        links: doc.links || [],
+        titleT: [...doc.titleT.entries()],
+        tagT: [...doc.tagT.entries()],
+        headT: [...doc.headT.entries()],
+        bodyT: [...doc.bodyT.entries()],
+      };
+    }
+    // 保存倒排索引
+    for (const [token, map] of this.index) {
+      data.index[token] = [...map.entries()];
+    }
+    try {
+      fs.writeFileSync(indexPath, JSON.stringify(data), 'utf8');
+      return { ok: true, docs: this.docs.size, tokens: this.index.size };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  // v1.1: 从磁盘加载索引
+  load(indexPath) {
+    try {
+      const raw = fs.readFileSync(indexPath, 'utf8');
+      const data = JSON.parse(raw);
+      if (!data.docs || !data.index) return { ok: false, error: '索引格式无效' };
+      this.docs.clear();
+      this.index.clear();
+      for (const [relPath, d] of Object.entries(data.docs)) {
+        this.docs.set(relPath, {
+          relPath: d.relPath,
+          title: d.title,
+          tags: d.tags,
+          size: d.size,
+          mtimeMs: d.mtimeMs,
+          headings: d.headings,
+          links: d.links || [],
+          titleT: new Map(d.titleT),
+          tagT: new Map(d.tagT),
+          headT: new Map(d.headT),
+          bodyT: new Map(d.bodyT),
+        });
+      }
+      for (const [token, entries] of Object.entries(data.index)) {
+        this.index.set(token, new Map(entries));
+      }
+      return { ok: true, docs: this.docs.size, tokens: this.index.size, savedAt: data.savedAt };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  // v1.1: 增量更新——只重新索引已变更的文件
+  incrementalScan() {
+    const files = this._walk();
+    const currentPaths = new Set();
+    let added = 0, updated = 0, removed = 0;
+    // 检查已有文件是否变更或被删除
+    for (const [relPath, doc] of this.docs) {
+      const absPath = path.join(this.notesDir, relPath.split('/').join(path.sep));
+      if (!fs.existsSync(absPath)) {
+        this._removeDoc(relPath);
+        removed++;
+        continue;
+      }
+      try {
+        const st = fs.statSync(absPath);
+        if (Math.abs(st.mtimeMs - doc.mtimeMs) > 100) {
+          this._indexFile(absPath);
+          updated++;
+        }
+      } catch {}
+    }
+    // 索引新增文件
+    for (const absPath of files) {
+      const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
+      currentPaths.add(relPath);
+      if (!this.docs.has(relPath)) {
+        this._indexFile(absPath);
+        added++;
+      }
+    }
+    return { total: this.docs.size, added, updated, removed, errors: this.errors.length };
+  }
+// v1.3: 获取笔记引用关系图
+  getLinkGraph() {
+    const nodes = [];
+    const edges = [];
+    const nodeSet = new Set();
+    for (const [relPath, doc] of this.docs) {
+      if (!nodeSet.has(relPath)) {
+        nodeSet.add(relPath);
+        nodes.push({ id: relPath, title: doc.title, tags: doc.tags });
+      }
+      for (const target of (doc.links || [])) {
+        if (!nodeSet.has(target)) {
+          nodeSet.add(target);
+          const targetDoc = this.docs.get(target);
+          nodes.push({ id: target, title: targetDoc?.title || target, tags: targetDoc?.tags || [] });
+        }
+        edges.push({ source: relPath, target });
+      }
+    }
+    return { nodes, edges };
   }
 }
 

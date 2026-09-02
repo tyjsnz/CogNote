@@ -7,6 +7,7 @@ const { Indexer } = require('./src/indexer');
 const { SearchEngine } = require('./src/search');
 const { DeepSeekAI, AIError } = require('./src/ai');
 const notesApi = require('./src/notes');
+const { ReviewManager } = require('./src/review');
 
 const ROOT = __dirname;
 
@@ -15,6 +16,10 @@ const IS_PKG = !!process.pkg;
 const EXE_DIR = IS_PKG ? path.dirname(process.execPath) : ROOT;
 const DATA_DIR = process.env.KB_DATA_DIR || path.join(EXE_DIR, 'data');
 const CONFIG_PATH = IS_PKG ? path.join(DATA_DIR, 'config.json') : path.join(ROOT, 'config.json');
+// v1.1: 索引持久化路径
+const INDEX_PATH = IS_PKG ? path.join(DATA_DIR, 'index.json') : path.join(ROOT, '.index.json');
+// v1.4: 复习数据目录
+const REVIEW_DIR = IS_PKG ? DATA_DIR : ROOT;
 
 const DEFAULT_CONFIG = {
   notesDir: '',
@@ -62,8 +67,9 @@ let config = loadConfig();
 let indexer = null;
 let search = null;
 let ai = new DeepSeekAI(config.deepseek);
+let review = null;
 
-function rebuildIndexer() {
+function rebuildIndexer(incremental = false) {
   const dir = (config.notesDir || '').trim();
   // 空或无效的笔记目录：用一个空的临时目录扫描，保证服务可启动并提示配置
   let scanDir = dir;
@@ -72,8 +78,24 @@ function rebuildIndexer() {
     try { fs.mkdirSync(scanDir, { recursive: true }); } catch {}
   }
   indexer = new Indexer(scanDir, { ...config.index, ignoreDirs: config.index.ignoreDirs });
+  // v1.1: 尝试加载已保存的索引
+  if (incremental && fs.existsSync(INDEX_PATH)) {
+    const loadResult = indexer.load(INDEX_PATH);
+    if (loadResult.ok) {
+      console.log(`[知识库] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
+      const info = indexer.incrementalScan();
+      search = new SearchEngine(indexer);
+      // 增量更新后保存
+      indexer.save(INDEX_PATH);
+      return info;
+    }
+  }
+  // 全量扫描
   const info = indexer.scan();
   search = new SearchEngine(indexer);
+  review = new ReviewManager(REVIEW_DIR);
+  // 扫描后保存索引
+  try { indexer.save(INDEX_PATH); } catch {}
   return info;
 }
 
@@ -207,6 +229,11 @@ async function handleApi(pathname, req, res, url) {
     return sendJson(res, 200, { notesDir: config.notesDir, stats: indexer.stats() });
   }
 
+  // v1.3: 获取笔记引用关系图
+  if (pathname === '/api/links' && req.method === 'GET') {
+    return sendJson(res, 200, indexer.getLinkGraph());
+  }
+
   if (pathname === '/api/rescan' && req.method === 'POST') {
     const info = rebuildIndexer();
     return sendJson(res, 200, { ok: true, info });
@@ -243,6 +270,7 @@ async function handleApi(pathname, req, res, url) {
     if (typeof body.content !== 'string') throw new Error('缺少 content');
     await notesApi.writeNote(config.notesDir, body.rel, body.content);
     indexer.add(path.join(config.notesDir, notesApi.fromPosix(body.rel)));
+    try { indexer.save(INDEX_PATH); } catch {}
     return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
   }
 
@@ -264,6 +292,7 @@ async function handleApi(pathname, req, res, url) {
     } else {
       indexer.rename(notesApi.toPosix(body.from), path.join(config.notesDir, notesApi.fromPosix(body.to)));
     }
+    try { indexer.save(INDEX_PATH); } catch {}
     return sendJson(res, 200, { ok: true, ...r });
   }
 
@@ -279,6 +308,7 @@ async function handleApi(pathname, req, res, url) {
     if (hadSub) {
       for (const r of oldSubRels) indexer.remove(path.join(config.notesDir, notesApi.fromPosix(base + '/' + r)));
     }
+    try { indexer.save(INDEX_PATH); } catch {}
     return sendJson(res, 200, { ok: true });
   }
 
@@ -419,6 +449,22 @@ async function handleApi(pathname, req, res, url) {
     return sendJson(res, 200, { ok: true, relPath: doc.relPath, ...result });
   }
 
+  // v1.2: 批量归类分析
+  if (pathname === '/api/batch-classify' && req.method === 'POST') {
+    const docs = [...indexer.docs.values()];
+    if (!docs.length) throw new Error('知识库中没有笔记');
+    const maxNotes = Math.min(docs.length, body.maxNotes || 100);
+    const results = await ai.batchClassify(docs.slice(0, maxNotes));
+    // 生成 Markdown 报告
+    let report = '# 批量归类建议报告\n\n';
+    report += `分析了 ${results.length} 篇笔记的分类建议。\n\n`;
+    report += '| 原路径 | 建议分类 | 建议标签 | 理由 |\n|--------|----------|----------|------|\n';
+    for (const r of results) {
+      report += `| ${r.relPath || ''} | ${r.suggestedCategory || ''} | ${(r.suggestedTags || []).join(', ')} | ${r.reason || ''} |\n`;
+    }
+    return sendJson(res, 200, { ok: true, count: results.length, results, report });
+  }
+
   if (pathname === '/api/expand' && req.method === 'POST') {
     const body = await readBody(req);
     const doc = ensureDoc(body.rel);
@@ -452,6 +498,26 @@ async function handleApi(pathname, req, res, url) {
     return sendJson(res, 200, { ok: true, answer });
   }
 
+  // v1.4: 复习计划
+  if (pathname === '/api/review/due' && req.method === 'GET') {
+    const allRels = [...indexer.docs.keys()];
+    const due = review.getDueNotes(allRels);
+    const stats = review.getStats(allRels);
+    const items = due.map((d) => {
+      const doc = indexer.get(d.relPath);
+      return { relPath: d.relPath, title: doc?.title || d.relPath, tags: doc?.tags || [], isNew: d.isNew, isDue: d.isDue, nextReview: d.state.nextReview, interval: d.state.interval };
+    });
+    return sendJson(res, 200, { ok: true, stats, items });
+  }
+
+  if (pathname === '/api/review/mark' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少 rel');
+    const quality = Math.max(0, Math.min(5, parseInt(body.quality) || 3));
+    const state = review.markReviewed(notesApi.toPosix(body.rel), quality);
+    return sendJson(res, 200, { ok: true, state });
+  }
+
   return null;
 }
 
@@ -472,10 +538,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// 启动前构建索引
+// 启动前构建索引（增量模式：加载缓存 + 只更新变更文件）
 try {
-  const info = rebuildIndexer();
-  console.log(`[知识库] 扫描完成: ${info.total} 篇笔记${info.errors ? `，${info.errors} 个读取错误` : ''}`);
+  const info = rebuildIndexer(true);
+  console.log(`[知识库] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}`);
 } catch (err) {
   console.error(`[知识库] 索引构建失败: ${err.message}`);
   process.exit(1);

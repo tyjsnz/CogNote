@@ -140,6 +140,53 @@ class DeepSeekAI {
     return this.chat(messages, { temperature: 0.3 });
   }
 
+  // v1.2: 批量归类分析——分析全库笔记，生成分类调整建议报告
+  async batchClassify(docs, { batchSize = 20 } = {}) {
+    const summaries = docs.map((d) => ({
+      relPath: d.relPath,
+      title: d.title,
+      tags: d.tags,
+      body: (d.body || '').slice(0, 800),
+    }));
+    const batches = [];
+    for (let i = 0; i < summaries.length; i += batchSize) {
+      batches.push(summaries.slice(i, i + batchSize));
+    }
+    const results = [];
+    for (const batch of batches) {
+      const list = batch.map((d) => `- ${d.relPath} | 标题: ${d.title} | 标签: ${d.tags.join(', ') || '无'}\n  摘要: ${d.body.slice(0, 200)}`).join('\n');
+      const messages = [
+        { role: 'system', content: this._system() },
+        {
+          role: 'user',
+          content:
+            `请分析以下笔记列表，为每篇笔记给出分类建议。要求返回 JSON 数组，每个元素：\n` +
+            `{"relPath":"原路径","suggestedCategory":"建议分类目录","suggestedTags":["建议标签"],"reason":"简要理由"}\n\n` +
+            `笔记列表：\n${list}\n\n返回 JSON 数组：`,
+        },
+      ];
+      const text = await this.chat(messages, { json: true, temperature: 0.3 });
+      const parsed = this._safeJsonArray(text);
+      results.push(...parsed);
+    }
+    return results;
+  }
+
+  _safeJsonArray(text) {
+    try {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr)) return arr;
+    } catch {}
+    const m = text.match(/\[[\s\S]*\]/);
+    if (m) {
+      try {
+        const arr = JSON.parse(m[0]);
+        if (Array.isArray(arr)) return arr;
+      } catch {}
+    }
+    return [];
+  }
+
   _safeJson(text) {
     try {
       return JSON.parse(text);

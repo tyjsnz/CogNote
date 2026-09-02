@@ -1261,6 +1261,78 @@ function injectUploadButton() {
     }
   }
 
+  // v1.2: 批量归类分析
+  async function aiBatchClassify() {
+    const box = aiLoading('#ai-batch-out', 'AI 正在分析全库笔记（可能需要几分钟）');
+    try {
+      const d = await api('/api/batch-classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      box.className = 'ai-out done';
+      let html = `<b>分析完成：</b>共 ${d.count} 篇笔记<br><br>`;
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+      html += '<tr style="background:var(--code-bg);"><th style="padding:4px;text-align:left;border:1px solid var(--border);">原路径</th><th style="padding:4px;text-align:left;border:1px solid var(--border);">建议分类</th><th style="padding:4px;text-align:left;border:1px solid var(--border);">理由</th></tr>';
+      for (const r of d.results || []) {
+        html += `<tr><td style="padding:4px;border:1px solid var(--border);word-break:break-all;">${esc(r.relPath || '')}</td><td style="padding:4px;border:1px solid var(--border);">${esc(r.suggestedCategory || '')}</td><td style="padding:4px;border:1px solid var(--border);">${esc(r.reason || '')}</td></tr>`;
+      }
+      html += '</table>';
+      html += `<br><button id="btn-download-report" class="ai-btn">📥 下载 Markdown 报告</button>`;
+      box.innerHTML = html;
+      const dlBtn = box.querySelector('#btn-download-report');
+      if (dlBtn) {
+        dlBtn.addEventListener('click', () => {
+          const blob = new Blob([d.report || ''], { type: 'text/markdown' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = '批量归类报告.md';
+          a.click();
+        });
+      }
+    } catch (e) {
+      aiError(box, e);
+    }
+  }
+
+  // v1.4: 复习计划
+  async function loadReviewPlan() {
+    const box = aiLoading('#ai-review-plan', '加载复习计划');
+    try {
+      const d = await api('/api/review/due');
+      box.className = 'ai-out done';
+      const s = d.stats;
+      let html = `<div style="margin-bottom:8px;">`;
+      html += `<b>总计 ${s.total} 篇</b> · `;
+      html += `<span style="color:var(--primary)">待复习 ${s.dueCount}</span> · `;
+      html += `新笔记 ${s.newCount} · `;
+      html += `已复习 ${s.reviewedCount} · `;
+      html += `已掌握 ${s.masteredCount}`;
+      html += `</div>`;
+      if (!d.items?.length) {
+        html += '<p style="color:var(--muted)">今日无需复习，干得好！</p>';
+      } else {
+        html += '<ul style="margin:4px 0;padding-left:18px;">';
+        for (const item of d.items) {
+          const label = item.isNew ? '📖 新' : '🔄 待复习';
+          html += `<li><a href="#" class="review-link" data-rel="${esc(item.relPath)}" style="color:var(--primary);text-decoration:none;">${esc(item.title)}</a> <span style="color:var(--muted);font-size:12px;">${label}</span></li>`;
+        }
+        html += '</ul>';
+        html += '<div style="margin-top:8px;font-size:12px;color:var(--muted);">点击笔记打开后，在 AI 助手中标记复习掌握程度（0-5分）</div>';
+      }
+      box.innerHTML = html;
+      box.querySelectorAll('.review-link').forEach((a) => {
+        a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const rel = a.dataset.rel;
+          if (rel) openNote(rel);
+        });
+      });
+    } catch (e) {
+      aiError(box, e);
+    }
+  }
+
   async function aiExpand(mode) {
     if (!state.currentRel) return toast('请先选择一篇笔记', true);
     const prompt = $('#ai-expand-prompt').value.trim();
@@ -1525,6 +1597,65 @@ function injectUploadButton() {
     await Promise.all([loadTree(), loadTags(), loadStats()]);
   }
 
+  // v1.3: 双链图
+  async function openLinkGraph() {
+    const container = $('#link-graph-container');
+    container.innerHTML = '<p style="color:var(--muted)">加载中...</p>';
+    $('#dialog-links').classList.remove('hidden');
+    try {
+      const data = await api('/api/links');
+      if (!data.nodes?.length) {
+        container.innerHTML = '<p style="color:var(--muted)">暂无笔记引用关系</p>';
+        return;
+      }
+      // 构建邻接表
+      const adj = new Map();
+      const inDeg = new Map();
+      for (const n of data.nodes) {
+        adj.set(n.id, []);
+        inDeg.set(n.id, 0);
+      }
+      for (const e of data.edges) {
+        if (adj.has(e.source)) adj.get(e.source).push(e.target);
+        inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1);
+      }
+      // 找出被引用最多的笔记（核心节点）
+      const sorted = [...data.nodes].sort((a, b) => (inDeg.get(b.id) || 0) - (inDeg.get(a.id) || 0));
+      let html = `<p style="margin-bottom:12px;"><b>${data.nodes.length}</b> 篇笔记，<b>${data.edges.length}</b> 条引用关系</p>`;
+      // 显示核心节点（被引用 >= 2 次）
+      const core = sorted.filter((n) => (inDeg.get(n.id) || 0) >= 2);
+      if (core.length) {
+        html += '<div style="margin-bottom:12px;"><b>核心笔记（被引用 ≥2 次）：</b><ul style="margin:4px 0;">';
+        for (const n of core) {
+          html += `<li><a href="#" class="graph-link" data-rel="${esc(n.id)}">${esc(n.title)}</a> <span style="color:var(--muted)">（被引用 ${inDeg.get(n.id)} 次）</span></li>`;
+        }
+        html += '</ul></div>';
+      }
+      // 显示所有引用关系
+      html += '<b>引用关系：</b><ul style="margin:4px 0;">';
+      for (const e of data.edges) {
+        const srcTitle = data.nodes.find((n) => n.id === e.source)?.title || e.source;
+        const tgtTitle = data.nodes.find((n) => n.id === e.target)?.title || e.target;
+        html += `<li><a href="#" class="graph-link" data-rel="${esc(e.source)}">${esc(srcTitle)}</a> → <a href="#" class="graph-link" data-rel="${esc(e.target)}">${esc(tgtTitle)}</a></li>`;
+      }
+      html += '</ul>';
+      container.innerHTML = html;
+      // 绑定链接点击
+      container.querySelectorAll('.graph-link').forEach((a) => {
+        a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const rel = a.dataset.rel;
+          if (rel) {
+            $('#dialog-links').classList.add('hidden');
+            openNote(rel);
+          }
+        });
+      });
+    } catch (e) {
+      container.innerHTML = `<p style="color:var(--error)">加载失败: ${esc(e.message)}</p>`;
+    }
+  }
+
   // ---------- bindings ----------
   function bindEvents() {
     $('#search-btn').addEventListener('click', () => {
@@ -1604,6 +1735,8 @@ function injectUploadButton() {
     $('#btn-ai-classify').addEventListener('click', aiClassify);
     $('#btn-ai-expand-append').addEventListener('click', () => aiExpand('append'));
     $('#btn-ai-expand-new').addEventListener('click', () => aiExpand('new'));
+    $('#btn-ai-batch-classify').addEventListener('click', aiBatchClassify);
+    $('#btn-review-due').addEventListener('click', loadReviewPlan);
     $('#btn-ai-summary').addEventListener('click', aiSummary);
     $('#btn-ai-quiz').addEventListener('click', aiQuiz);
     $('#btn-ai-ask').addEventListener('click', openAiChat);
@@ -1622,6 +1755,9 @@ function injectUploadButton() {
     });
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
+    // v1.3: 双链图
+    $('#btn-show-links').addEventListener('click', openLinkGraph);
+    $('#btn-links-close').addEventListener('click', () => $('#dialog-links').classList.add('hidden'));
 
     $('#btn-move-newfolder').addEventListener('click', newMoveSubfolder);
     $('#btn-move-cancel').addEventListener('click', () => $('#dialog-move').classList.add('hidden'));

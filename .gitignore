@@ -5,6 +5,7 @@ NUL
 config.json
 server.err.log
 server.log
+.index.json
 # Logs
 logs
 *.log

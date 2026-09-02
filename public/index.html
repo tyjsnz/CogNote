@@ -18,6 +18,7 @@
     <div class="top-actions">
       <span id="ai-badge" class="badge">AI 未配置</span>
       <button id="btn-rescan" title="重新扫描笔记目录">🔄 重新扫描</button>
+      <button id="btn-show-links" title="查看笔记引用关系图">🔗 双链图</button>
       <a id="btn-settings" class="btn-link" title="设置" href="#">⚙️</a>
     </div>
   </header>
@@ -101,6 +102,24 @@
       </div>
 
       <div class="ai-section">
+        <div class="ai-section-title">📊 批量归类</div>
+        <p class="hint">AI 分析全库笔记，生成分类调整建议报告。</p>
+        <div class="btn-row">
+          <button id="btn-ai-batch-classify" class="ai-btn">分析全库</button>
+        </div>
+        <div id="ai-batch-out" class="ai-out"></div>
+      </div>
+
+      <div class="ai-section">
+        <div class="ai-section-title">📅 复习计划</div>
+        <p class="hint">基于遗忘曲线，显示今日需要复习的笔记。</p>
+        <div class="btn-row">
+          <button id="btn-review-due" class="ai-btn">查看今日复习</button>
+        </div>
+        <div id="ai-review-plan" class="ai-out"></div>
+      </div>
+
+      <div class="ai-section">
         <div class="ai-section-title">📝 复习与自测</div>
         <p class="hint">对当前笔记（或所属分类全部笔记）生成复习摘要 / 自测题，结果直接保存为新笔记，可自行决定是否保留。</p>
         <div class="btn-row">
@@ -149,6 +168,17 @@
       <div class="modal-foot">
         <button id="btn-settings-cancel" class="link-btn">关闭</button>
         <button id="btn-settings-ok" class="primary-btn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.3: 双链图对话框 -->
+  <div id="dialog-links" class="modal hidden">
+    <div class="modal-box modal-wide">
+      <h3>🔗 笔记引用关系图</h3>
+      <div id="link-graph-container" style="overflow:auto;max-height:60vh;font-size:13px;"></div>
+      <div class="modal-foot">
+        <button id="btn-links-close" class="link-btn">关闭</button>
       </div>
     </div>
   </div>
