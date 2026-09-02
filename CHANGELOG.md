@@ -2,6 +2,26 @@
 
 ## 2026-09-02
 
+### 新增：多 AI 服务商支持
+- 设置面板新增 AI 服务商下拉选择：DeepSeek / OpenAI / Claude / Moonshot / 智谱 / 通义千问 / 自定义
+- 切换服务商时自动填充默认 Base URL 和模型名
+- API Key / Base URL / 模型均可自定义
+- 顶部 AI 徽章显示当前服务商名称
+
+### 新增：可配置扫描过滤目录
+- 设置面板新增「扫描过滤目录」输入框（逗号分隔）
+- `_attachments` 附件目录固定过滤，不可移除
+- 保存后自动重建索引
+
+### 修复与优化
+- config.json 新增 `ai` 字段（兼容旧 `deepseek` 字段）
+- `publicConfig()` 隐藏所有服务商的 API Key
+- AI 状态接口返回当前 provider
+
+---
+
+## 2026-09-02（续）
+
 ### v1.4 复习计划（新增）
 - 新增 `src/review.js` 模块，实现 SM-2 间隔重复算法
 - 新增 `GET /api/review/due` 获取今日待复习笔记列表

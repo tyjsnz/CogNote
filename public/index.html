@@ -153,18 +153,36 @@
   </div>
 
   <div id="dialog-settings" class="modal hidden">
-    <div class="modal-box">
+    <div class="modal-box modal-wide">
       <h3>⚙️ 设置</h3>
       <label>笔记目录
         <input id="cfg-notesdir" type="text">
       </label>
-      <label>DeepSeek API Key
+      <label>扫描过滤目录（逗号分隔，_attachments 固定过滤）
+        <input id="cfg-ignore-dirs" type="text" placeholder=".git, node_modules, img, images, .obsidian">
+      </label>
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
+      <label>AI 服务商
+        <select id="cfg-ai-provider" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;">
+          <option value="deepseek">DeepSeek</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="claude">Anthropic (Claude)</option>
+          <option value="moonshot">Moonshot (Kimi)</option>
+          <option value="zhipu">智谱 (GLM)</option>
+          <option value="qwen">通义千问 (Qwen)</option>
+          <option value="custom">自定义 (OpenAI 兼容)</option>
+        </select>
+      </label>
+      <label>API Key
         <input id="cfg-apikey" type="password" placeholder="sk-...">
       </label>
-      <label>模型
-        <input id="cfg-model" type="text">
+      <label>Base URL
+        <input id="cfg-baseurl" type="text" placeholder="留空使用默认地址">
       </label>
-      <p class="hint">配置保存后自动重新扫描索引。</p>
+      <label>模型
+        <input id="cfg-model" type="text" placeholder="留空使用默认模型">
+      </label>
+      <p class="hint">配置保存后自动重新扫描索引。API Key 不修改可留空。</p>
       <div class="modal-foot">
         <button id="btn-settings-cancel" class="link-btn">关闭</button>
         <button id="btn-settings-ok" class="primary-btn">保存</button>

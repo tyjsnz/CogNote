@@ -21,7 +21,7 @@
   - IR / WYSIWYG / SV 三种模式，工具栏
   - KaTeX 数学公式、Mermaid / flowchart / graphviz 图表
   - highlight.js 代码高亮（含行号）、预览分屏、大纲、导出
-- AI：DeepSeek API（OpenAI 兼容 Chat Completions 协议）
+- AI：DeepSeek / OpenAI / Claude / Moonshot / 智谱 / 通义千问 / 自定义（OpenAI 兼容协议）
 
 ## 目录结构
 
@@ -57,14 +57,21 @@
 {
   "notesDir": "D:\\prj\\fnos_sync_data\\prj\\开发文档",
   "port": 8570,
-  "deepseek": {
-    "apiKey": "sk-你的key",          // 填写后 AI 功能生效
+  "ai": {
+    "provider": "deepseek",
+    "apiKey": "sk-你的key",
+    "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-chat"
+  },
+  "index": {
+    "ignoreDirs": [".git", "node_modules", "img", "images", ".obsidian", ".trash", ".vscode", "_attachments"]
   }
 }
 ```
 
-也可在 Web 界面右上角 ⚙️ 中填写目录与 API Key（保存后自动重建索引）。
+支持的 AI 服务商：DeepSeek、OpenAI (GPT)、Anthropic (Claude)、Moonshot (Kimi)、智谱 (GLM)、通义千问 (Qwen)、自定义 (OpenAI 兼容)。
+
+也可在 Web 界面右上角 ⚙️ 中配置目录、过滤目录、AI 服务商与 API Key（保存后自动重建索引）。
 
 ### 3. 启动
 

@@ -26,7 +26,19 @@ const DEFAULT_CONFIG = {
   port: 8570,
   host: '127.0.0.1',
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
-  index: { maxFileSizeKb: 2048, ignoreDirs: ['.git', 'node_modules', 'img', 'images', '.obsidian', '.trash', '.vscode'] },
+  ai: { provider: 'deepseek', apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
+  index: { maxFileSizeKb: 2048, ignoreDirs: ['.git', 'node_modules', 'img', 'images', '.obsidian', '.trash', '.vscode', '_attachments'] },
+};
+
+// AI 服务商默认配置
+const AI_PROVIDER_DEFAULTS = {
+  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
+  claude: { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+  moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
+  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  custom: { baseUrl: '', model: '' },
 };
 
 function ensureDataDir() {
@@ -38,11 +50,16 @@ function loadConfig() {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
     const cfg = JSON.parse(raw);
     cfg.deepseek = { ...DEFAULT_CONFIG.deepseek, ...(cfg.deepseek || {}) };
+    cfg.ai = { ...DEFAULT_CONFIG.ai, ...(cfg.ai || {}) };
     cfg.index = { ...DEFAULT_CONFIG.index, ...(cfg.index || {}) };
+    // _attachments 始终过滤
+    if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
     return cfg;
   } catch (err) {
     const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-    return { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) } };
+    const cfg = { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, ai: { ...DEFAULT_CONFIG.ai, ...(base.ai || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) } };
+    if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
+    return cfg;
   }
 }
 
@@ -66,7 +83,8 @@ initConfig();
 let config = loadConfig();
 let indexer = null;
 let search = null;
-let ai = new DeepSeekAI(config.deepseek);
+const aiCfg = config.ai || config.deepseek;
+let ai = new DeepSeekAI(aiCfg);
 let review = null;
 
 function rebuildIndexer(incremental = false) {
@@ -102,15 +120,24 @@ function rebuildIndexer(incremental = false) {
 function saveConfig(next) {
   initConfig();
   config = { ...config, ...next };
-  config.deepseek = { ...(loadConfig().deepseek || config.deepseek), ...(next.deepseek || {}) };
+  if (next.deepseek) config.deepseek = { ...(loadConfig().deepseek || config.deepseek), ...(next.deepseek || {}) };
+  if (next.ai) config.ai = { ...(loadConfig().ai || config.ai), ...(next.ai || {}) };
+  if (next.index) config.index = { ...(loadConfig().index || config.index), ...(next.index || {}) };
+  // _attachments 始终过滤
+  if (config.index?.ignoreDirs && !config.index.ignoreDirs.includes('_attachments')) {
+    config.index.ignoreDirs.push('_attachments');
+  }
   ensureDataDir();
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
-  ai = new DeepSeekAI(config.deepseek);
+  // 根据 AI 服务商配置初始化 AI
+  const aiCfg = config.ai || config.deepseek;
+  ai = new DeepSeekAI(aiCfg);
 }
 
 function publicConfig() {
   const c = JSON.parse(JSON.stringify(config));
-  delete c.deepseek.apiKey;
+  if (c.deepseek) delete c.deepseek.apiKey;
+  if (c.ai) delete c.ai.apiKey;
   return { ...c, aiConfigured: ai.isConfigured() };
 }
 
@@ -219,8 +246,15 @@ async function handleApi(pathname, req, res, url) {
     if (body.port) config.port = body.port;
     if (body.host) config.host = body.host;
     if (body.deepseek) config.deepseek = { ...config.deepseek, ...body.deepseek };
-    if (body.index) config.index = { ...config.index, ...body.index };
-    saveConfig({ notesDir: config.notesDir, port: config.port, host: config.host, deepseek: config.deepseek, index: config.index });
+    if (body.ai) config.ai = { ...config.ai, ...body.ai };
+    if (body.index) {
+      config.index = { ...config.index, ...body.index };
+      // _attachments 始终过滤
+      if (config.index.ignoreDirs && !config.index.ignoreDirs.includes('_attachments')) {
+        config.index.ignoreDirs.push('_attachments');
+      }
+    }
+    saveConfig({ notesDir: config.notesDir, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
     rebuildIndexer();
     return sendJson(res, 200, publicConfig());
   }
@@ -439,7 +473,8 @@ async function handleApi(pathname, req, res, url) {
 
   // ---------- AI ----------
   if (pathname === '/api/ai/status' && req.method === 'GET') {
-    return sendJson(res, 200, { configured: ai.isConfigured(), model: config.deepseek.model });
+    const provider = config.ai?.provider || 'deepseek';
+    return sendJson(res, 200, { configured: ai.isConfigured(), provider, model: config.ai?.model || config.deepseek.model });
   }
 
   if (pathname === '/api/classify' && req.method === 'POST') {

@@ -120,8 +120,9 @@
   async function fetchConfig() {
     state.config = await api('/api/config');
     const badge = $('#ai-badge');
+    const provider = (state.config.ai?.provider || 'deepseek').toUpperCase();
     if (state.config.aiConfigured) {
-      badge.textContent = 'AI 就绪';
+      badge.textContent = 'AI: ' + provider;
       badge.className = 'badge ok';
     } else {
       badge.textContent = 'AI 未配置';
@@ -1572,20 +1573,53 @@ function injectUploadButton() {
   // ---------- settings ----------
   function openSettings() {
     $('#cfg-notesdir').value = state.config.notesDir;
-    $('#cfg-model').value = state.config.deepseek.model;
+    const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments');
+    $('#cfg-ignore-dirs').value = ignoreDirs.join(', ');
+    // AI 配置
+    const provider = state.config.ai?.provider || 'deepseek';
+    $('#cfg-ai-provider').value = provider;
     $('#cfg-apikey').value = '';
+    const baseurl = state.config.ai?.baseUrl || '';
+    $('#cfg-baseurl').value = baseurl;
+    const model = state.config.ai?.model || state.config.deepseek?.model || '';
+    $('#cfg-model').value = model;
     $('#dialog-settings').classList.remove('hidden');
   }
 
   async function saveSettings() {
+    const ignoreDirs = $('#cfg-ignore-dirs').value
+      .split(/[,，\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // 附件目录固定过滤
+    if (!ignoreDirs.includes('_attachments')) ignoreDirs.push('_attachments');
+    const provider = $('#cfg-ai-provider').value;
+    const apiKey = $('#cfg-apikey').value.trim();
+    const baseUrl = $('#cfg-baseurl').value.trim();
+    const model = $('#cfg-model').value.trim();
+    // AI 服务商默认配置
+    const providerDefaults = {
+      deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+      openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
+      claude: { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+      moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
+      zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+      qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+      custom: { baseUrl: '', model: '' },
+    };
+    const defaults = providerDefaults[provider] || providerDefaults.deepseek;
+    const aiConfig = {
+      provider,
+      apiKey: apiKey || undefined,
+      baseUrl: baseUrl || defaults.baseUrl,
+      model: model || defaults.model,
+    };
     const body = {
       notesDir: $('#cfg-notesdir').value.trim(),
-      deepseek: {
-        apiKey: $('#cfg-apikey').value.trim(),
-        model: $('#cfg-model').value.trim(),
-      },
+      index: { ignoreDirs },
+      ai: aiConfig,
     };
-    if (!body.deepseek.apiKey) delete body.deepseek.apiKey;
+    if (!aiConfig.apiKey) delete body.ai.apiKey;
     await api('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
