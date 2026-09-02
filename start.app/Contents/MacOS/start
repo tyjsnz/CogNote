@@ -1,0 +1,25 @@
+#!/bin/bash
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$DIR" || exit 1
+
+rm -f server.log
+nohup node server.js > server.log 2>&1 &
+PID=$!
+
+for i in $(seq 1 10); do
+    sleep 1
+    URL=$(grep -o 'http://[^ ]*' server.log 2>/dev/null | head -1)
+    if [ -n "$URL" ]; then
+        osascript -e "display notification \"知识库服务器已启动\" with title \"Knowledge Server\" subtitle \"✓ $URL\""
+        sleep 0.3
+        open "$URL"
+        exit 0
+    fi
+    if ! kill -0 "$PID" 2>/dev/null; then
+        break
+    fi
+done
+
+osascript -e "display notification \"服务器启动失败，请查看 server.log\" with title \"Knowledge Server\" subtitle \"✗ 错误\""
+exit 1
