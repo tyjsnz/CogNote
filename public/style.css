@@ -290,6 +290,56 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 #vditor-wrap .vditor { border-radius: 8px; border: 1px solid var(--border); }
 #vditor-wrap .vditor--fullscreen { border-radius: 0; }
 
+/* 编辑器模式切换 */
+.editor-mode-toggle { display: flex; align-items: center; margin-left: 12px; }
+#btn-toggle-md {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+#btn-toggle-md:hover { background: var(--code-bg); }
+
+/* vditor 上传按钮 */
+#vditor-wrap .vditor-upload-btn {
+  background: transparent !important;
+  color: var(--text) !important;
+  border: none !important;
+  box-shadow: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  padding: 0 8px !important;
+}
+#vditor-wrap .vditor-upload-btn svg { display: none !important; }
+#vditor-wrap .vditor-upload-btn::after {
+  content: '📎';
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text);
+}
+#vditor-wrap .vditor-upload-btn:hover { background: var(--code-bg) !important; border-radius: 4px; }
+
+/* Markdown 源码编辑器 */
+#md-source {
+  width: 100%;
+  min-height: 460px;
+  padding: 14px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafafa;
+  color: var(--text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+#md-source:focus { outline: none; border-color: var(--accent); }
+
 /* AI panel */
 #ai-panel {
   width: 340px;

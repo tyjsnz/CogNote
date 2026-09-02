@@ -328,6 +328,76 @@ async function handleApi(pathname, req, res, url) {
     return;
   }
 
+  if (pathname === '/api/upload' && req.method === 'POST') {
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+      throw new Error('Content-Type 必须是 multipart/form-data');
+    }
+    const boundary = contentType.split('boundary=')[1];
+    if (!boundary) throw new Error('缺少 boundary');
+
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+
+    // 用 boundary 切割 parts
+    const boundaryBuf = Buffer.from('--' + boundary, 'utf-8');
+    const parts = [];
+    let start = 0;
+    while (true) {
+      const idx = buffer.indexOf(boundaryBuf, start);
+      if (idx === -1) break;
+      if (start > 0) {
+        // 去掉前导 \r\n
+        const partStart = start + 2;
+        const partEnd = idx - 2; // 去掉尾部 \r\n
+        if (partEnd > partStart) {
+          parts.push(buffer.slice(partStart, partEnd));
+        }
+      }
+      start = idx + boundaryBuf.length;
+    }
+
+    for (const partBuf of parts) {
+      // 找 header 和 body 的分隔
+      const headerEnd = partBuf.indexOf('\r\n\r\n');
+      if (headerEnd === -1) continue;
+      const headerStr = partBuf.slice(0, headerEnd).toString('utf-8');
+      const body = partBuf.slice(headerEnd + 4);
+
+      const filenameMatch = headerStr.match(/filename="([^"]*)"/);
+      if (!filenameMatch || !filenameMatch[1]) continue;
+
+      // 解码原始文件名（RFC 5987 编码）
+      let originalName = filenameMatch[1];
+      const rfc5987Match = headerStr.match(/filename\*=UTF-8''(.+?)(?=\s*;|$)/i);
+      if (rfc5987Match) {
+        originalName = decodeURIComponent(rfc5987Match[1]);
+      }
+
+      const ext = path.extname(originalName).toLowerCase();
+      const allowedExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf', '.txt', '.md', '.zip', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'];
+      if (!allowedExts.includes(ext)) {
+        throw new Error('不支持的文件类型: ' + ext);
+      }
+
+      const timestamp = Date.now();
+      const safeName = path.basename(originalName, ext).replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
+      const filename = safeName + '_' + timestamp + ext;
+      const relPath = '_attachments/' + filename;
+      const abs = notesApi.safeResolve(config.notesDir, relPath);
+      await fsp.mkdir(path.dirname(abs), { recursive: true });
+      await fsp.writeFile(abs, body);
+
+      return sendJson(res, 200, {
+        ok: true,
+        url: '/api/file?rel=' + encodeURIComponent(relPath),
+        filename: originalName,
+      });
+    }
+    throw new Error('未找到有效文件');
+  }
+
   if (pathname === '/api/reveal' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少路径');

@@ -627,13 +627,86 @@
     $('#viewer').classList.remove('hidden');
     $('#note-tags').innerHTML = '';
     $('#note-path').textContent = dirRel || '(根目录)';
-    $('#note-body').innerHTML =
-      '<p class="empty">📁 分类：<b>' + esc(dirRel || '(根目录)') + '</b><br>' +
-      '从左侧选择一篇笔记，或点击"＋新建"在该分类下创建笔记。</p>';
+
+    // 显示加载中
+    $('#note-body').innerHTML = '<p class="empty">加载中…</p>';
+
+    // 获取目录树并渲染文件列表
+    api('/api/tree').then((d) => {
+      const node = findNode(d.tree, dirRel);
+      if (!node) {
+        $('#note-body').innerHTML =
+          '<p class="empty">📁 分类：<b>' + esc(dirRel || '(根目录)') + '</b><br>' +
+          '目录不存在</p>';
+        return;
+      }
+      const files = collectFiles(node);
+      if (files.length === 0) {
+        $('#note-body').innerHTML =
+          '<p class="empty">📁 分类：<b>' + esc(dirRel || '(根目录)') + '</b><br>' +
+          '该目录下暂无文档</p>';
+        return;
+      }
+      let html = '<div class="file-list"><table><thead><tr><th>文档名称</th><th>大小</th><th>修改时间</th></tr></thead><tbody>';
+      for (const f of files) {
+        const size = formatSize(f.size);
+        const time = formatTime(f.mtimeMs);
+        html += '<tr data-rel="' + escAttr(f.relPath) + '" style="cursor:pointer">' +
+          '<td>' + esc(f.name) + '</td>' +
+          '<td style="text-align:right;white-space:nowrap">' + size + '</td>' +
+          '<td style="white-space:nowrap">' + time + '</td>' +
+          '</tr>';
+      }
+      html += '</tbody></table></div>';
+      $('#note-body').innerHTML = html;
+
+      // 点击行打开文档
+      $('#note-body').querySelectorAll('.file-list tbody tr').forEach((tr) => {
+        tr.addEventListener('click', () => openNote(tr.dataset.rel));
+      });
+    }).catch((e) => {
+      $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">加载失败：' + esc(e.message) + '</p>';
+    });
+
     ui.view = { type: 'dir', rel: dirRel || '' };
     saveUI();
     renderCover();
     syncSelection();
+  }
+
+  function findNode(node, targetRel) {
+    if (!node) return null;
+    if (node.relPath === targetRel) return node;
+    for (const c of node.children || []) {
+      const found = findNode(c, targetRel);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function collectFiles(node) {
+    const out = [];
+    for (const c of node.children || []) {
+      if (c.type === 'file') {
+        out.push({ name: c.name, relPath: c.relPath, size: c.size || 0, mtimeMs: c.mtimeMs || 0 });
+      } else if (c.type === 'dir') {
+        out.push(...collectFiles(c));
+      }
+    }
+    return out;
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function formatTime(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') +
+      ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
   // ---------- 标题目录（封面）----------
@@ -702,6 +775,7 @@
 
   // ---------- editor ----------
   let vditor = null;
+  let editorMode = 'wysiwyg'; // 'wysiwyg' | 'source'
 
   function ensureVditor() {
     if (vditor) return Promise.resolve(vditor);
@@ -722,8 +796,9 @@
             'quote', 'line', 'code', 'inline-code', '|',
             'table', 'link', '|',
             'emoji', '|',
+            'outdent', 'indent', '|',
             'edit-mode', 'both', 'preview', 'fullscreen', '|',
-            'outline', 'export',
+            'outline', 'export', 'devtools', 'help',
           ],
           preview: {
             theme: { current: 'light' },
@@ -733,6 +808,7 @@
             diagram: true,
           },
           after() {
+            setTimeout(injectUploadButton, 0);
             resolve(vditor);
           },
         });
@@ -740,6 +816,47 @@
         reject(e);
       }
     });
+  }
+
+function injectUploadButton() {
+    try {
+      const toolbar = document.querySelector('#vditor-wrap .vditor-toolbar');
+      if (!toolbar) { console.warn('[upload] .vditor-toolbar not found'); return; }
+      if (toolbar.querySelector('.vditor-upload-btn')) return;
+      const btn = document.createElement('button');
+      btn.className = 'vditor-menu vditor-upload-btn';
+      btn.title = '上传附件';
+      btn.addEventListener('click', () => $('#file-upload').click());
+      const fsBtn = toolbar.querySelector('[data-name="fullscreen"]') || toolbar.lastElementChild;
+      if (fsBtn) toolbar.insertBefore(btn, fsBtn);
+      else toolbar.appendChild(btn);
+      console.log('[upload] button injected');
+    } catch (e) { console.error('[upload] inject error:', e); }
+  }
+
+  function switchEditorMode(mode) {
+    editorMode = mode;
+    const vditorWrap = $('#vditor-wrap');
+    const mdSource = $('#md-source');
+    const btn = $('#btn-toggle-md');
+    if (mode === 'source') {
+      // 切换到源码模式：获取 vditor 内容放入 textarea
+      const content = vditor ? vditor.getValue() : '';
+      mdSource.value = content;
+      vditorWrap.classList.add('hidden');
+      mdSource.classList.remove('hidden');
+      btn.textContent = '👁 预览';
+      btn.title = '切换到可视化编辑模式';
+      mdSource.focus();
+    } else {
+      // 切换到可视化模式：获取 textarea 内容放入 vditor
+      const content = mdSource.value;
+      vditorWrap.classList.remove('hidden');
+      mdSource.classList.add('hidden');
+      if (vditor) vditor.setValue(content);
+      btn.textContent = '📝 源码';
+      btn.title = '切换到 Markdown 源码模式';
+    }
   }
 
   function openEditor() {
@@ -751,6 +868,14 @@
     $('#viewer').classList.add('hidden');
     $('#search-results').classList.add('hidden');
     $('#editor').classList.remove('hidden');
+
+    // 重置为可视化模式
+    editorMode = 'wysiwyg';
+    $('#vditor-wrap').classList.remove('hidden');
+    $('#md-source').classList.add('hidden');
+    const btn = $('#btn-toggle-md');
+    btn.textContent = '📝 源码';
+    btn.title = '切换到 Markdown 源码模式';
 
     ensureVditor().then(() => {
       if (state.currentRel) {
@@ -793,7 +918,7 @@
   async function saveNote() {
     const title = $('#edit-title').value.trim();
     const tags = $('#edit-tags').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-    let body = vditor ? vditor.getValue() : '';
+    let body = editorMode === 'source' ? $('#md-source').value : (vditor ? vditor.getValue() : '');
 
     let newRel;
     if (state.currentRel) {
@@ -1445,6 +1570,36 @@
 
     $('#btn-save').addEventListener('click', saveNote);
     $('#btn-cancel-edit').addEventListener('click', cancelEdit);
+    $('#btn-toggle-md').addEventListener('click', () => switchEditorMode(editorMode === 'source' ? 'wysiwyg' : 'source'));
+    $('#file-upload').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '上传失败');
+          // 插入到编辑器
+          const md = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i)
+            ? `![](${data.url})`
+            : `[${data.filename}](${data.url})`;
+          if (editorMode === 'source') {
+            const ta = $('#md-source');
+            const start = ta.selectionStart;
+            ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
+            ta.focus();
+          } else if (vditor) {
+            vditor.insertValue(md);
+          }
+          toast('已上传: ' + data.filename);
+        } catch (err) {
+          toast(err.message, true);
+        }
+      }
+      e.target.value = '';
+    });
 
     $('#btn-ai-classify').addEventListener('click', aiClassify);
     $('#btn-ai-expand-append').addEventListener('click', () => aiExpand('append'));

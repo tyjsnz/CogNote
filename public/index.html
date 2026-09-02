@@ -67,10 +67,15 @@
             <button id="btn-save">💾 保存</button>
             <button id="btn-cancel-edit">取消</button>
           </div>
+          <div class="editor-mode-toggle">
+            <button id="btn-toggle-md" type="button" title="切换到 Markdown 源码模式">📝 源码</button>
+          </div>
         </div>
         <input id="edit-title" type="text" placeholder="笔记标题（首行 # 标题）">
         <input id="edit-tags" type="text" placeholder="标签，用逗号分隔（写入 frontmatter）">
         <div id="vditor-wrap"></div>
+        <textarea id="md-source" class="hidden" placeholder="Markdown 源码编辑模式" spellcheck="false"></textarea>
+        <input type="file" id="file-upload" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.txt,.md,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style="display:none">
       </div>
     </main>
 
