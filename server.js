@@ -342,8 +342,11 @@ async function handleApi(pathname, req, res, url) {
 
   if (pathname === '/api/note' && req.method === 'GET') {
     const rel = url.searchParams.get('rel');
+    const dir = url.searchParams.get('dir'); // 可选：指定笔记目录
     if (!rel) throw new Error('缺少 rel 参数');
-    const { content, size, mtimeMs } = await notesApi.readNote(config.notesDir, rel);
+    // 多目录模式：用指定目录，否则用 notesDir
+    const noteDir = dir && fs.existsSync(dir) ? dir : config.notesDir;
+    const { content, size, mtimeMs } = await notesApi.readNote(noteDir, rel);
     const doc = indexer.get(notesApi.toPosix(rel));
     return sendJson(res, 200, {
       relPath: notesApi.toPosix(rel),
@@ -354,13 +357,13 @@ async function handleApi(pathname, req, res, url) {
     });
   }
 
-  if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST')) {
+if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST')) {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
     if (typeof body.content !== 'string') throw new Error('缺少 content');
-    await notesApi.writeNote(config.notesDir, body.rel, body.content);
-    indexer.add(path.join(config.notesDir, notesApi.fromPosix(body.rel)));
-    try { indexer.save(INDEX_PATH); } catch {}
+    const noteDir = body.dir && fs.existsSync(body.dir) ? body.dir : config.notesDir;
+    await notesApi.writeNote(noteDir, body.rel, body.content);
+    indexer.add(path.join(noteDir, notesApi.fromPosix(body.rel)));
     return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
   }
 
@@ -428,8 +431,10 @@ async function handleApi(pathname, req, res, url) {
 
   if (pathname === '/api/file' && req.method === 'GET') {
     const rel = url.searchParams.get('rel');
+    const dir = url.searchParams.get('dir');
     if (!rel) throw new Error('缺少 rel 参数');
-    const abs = notesApi.safeResolve(config.notesDir, rel);
+    const fileDir = dir && fs.existsSync(dir) ? dir : config.notesDir;
+    const abs = notesApi.safeResolve(fileDir, rel);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('文件不存在: ' + rel);
     const ext = path.extname(abs).toLowerCase();
     const mime = {
@@ -521,7 +526,8 @@ async function handleApi(pathname, req, res, url) {
   if (pathname === '/api/reveal' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少路径');
-    const abs = notesApi.safeResolve(config.notesDir, body.rel);
+    const fileDir = body.dir && fs.existsSync(body.dir) ? body.dir : config.notesDir;
+    const abs = notesApi.safeResolve(fileDir, body.rel);
     if (!fs.existsSync(abs)) throw new Error('路径不存在: ' + body.rel);
     revealInExplorer(abs);
     return sendJson(res, 200, { ok: true });

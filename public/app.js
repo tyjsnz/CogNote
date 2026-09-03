@@ -267,10 +267,11 @@
     reveal() {
       const n = window._ctxNode;
       if (!n || n.type === 'root') return;
+      const { rel, dir } = stripDirPrefix(n.rel);
       api('/api/reveal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: n.rel }),
+        body: JSON.stringify({ rel, dir }),
       }).then(() => toast('已在资源管理器中打开: ' + n.rel)).catch((e) => toast(e.message, true));
     },
     async 'new-subfolder'() {
@@ -411,8 +412,9 @@
       );
       win.document.close();
       let d;
+      const nRel = stripDirPrefix(n.rel);
       try {
-        d = await api('/api/note?rel=' + encodeURIComponent(n.rel));
+        d = await api('/api/note?rel=' + encodeURIComponent(nRel.rel) + (nRel.dir ? '&dir=' + encodeURIComponent(nRel.dir) : ''));
       } catch (e) {
         const b = win.document.getElementById('pdf-body');
         if (b) b.textContent = '导出失败：' + e.message;
@@ -581,53 +583,57 @@
 
   // ---------- note open/view ----------
   // ---------- 多目录前缀处理 ----------
-  // 多目录模式下，tree 中的 relPath 以目录名开头（如 "开发文档/file.md"），
-  // 但 API 需要原始相对路径（如 "file.md"）。根据 notesDirs 还原。
   function stripDirPrefix(treeRel) {
-    if (!treeRel || !state.config?.notesDirs?.length) return treeRel;
+    if (!treeRel || !state.config?.notesDirs?.length) return { rel: treeRel, dir: '' };
     const dirs = state.config.notesDirs || [];
     for (const dir of dirs) {
       const dirName = dir.replace(/^.*[/\\]/, '');
-      if (treeRel === dirName) return '';
-      if (treeRel.startsWith(dirName + '/')) return treeRel.slice(dirName.length + 1);
+      if (treeRel === dirName) return { rel: '', dir };
+      if (treeRel.startsWith(dirName + '/')) return { rel: treeRel.slice(dirName.length + 1), dir };
     }
-    return treeRel;
+    return { rel: treeRel, dir: '' };
   }
 
-  async function openNote(rel) {
-    state.currentRel = stripDirPrefix(rel);
+  function noteApiUrl(base, rel) {
+    const d = state.currentNoteDir || '';
+    return base + '?rel=' + encodeURIComponent(rel || state.currentRel) + (d ? '&dir=' + encodeURIComponent(d) : '');
+  }
+
+  async function openNote(treeRel) {
+    const { rel, dir } = stripDirPrefix(treeRel);
+    state.currentRel = rel;
+    state.currentNoteDir = dir;
     state.editing = false;
     $('#search-results').classList.add('hidden');
     $('#editor').classList.add('hidden');
     $('#viewer').classList.remove('hidden');
     $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
-    $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(rel) + '"]')?.classList.add('active');
-    const apiRel = stripDirPrefix(rel);
-    const isPdf = /\.pdf$/i.test(rel);
+    $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(treeRel) + '"]')?.classList.add('active');
+    const isPdf = /\.pdf$/i.test(treeRel);
     if (isPdf) {
-      state.currentDir = relDir(rel);
-      $('#note-path').textContent = rel;
+      state.currentDir = relDir(treeRel);
+      $('#note-path').textContent = treeRel;
       $('#note-tags').innerHTML = '';
-      const fileUrl = '/api/file?rel=' + encodeURIComponent(apiRel);
+      const fileUrl = '/api/file?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '');
       $('#note-body').innerHTML =
         '<div class="pdf-viewer">' +
-        '<iframe src="' + fileUrl + '" title="' + esc(rel) + '" allow="fullscreen"></iframe>' +
+        '<iframe src="' + fileUrl + '" title="' + esc(treeRel) + '" allow="fullscreen"></iframe>' +
         '</div>';
-      ui.view = { type: 'note', rel };
+      ui.view = { type: 'note', rel: treeRel };
       saveUI();
       renderCover();
       syncSelection();
       return;
     }
-    const d = await api('/api/note?rel=' + encodeURIComponent(apiRel));
-    state.currentDir = relDir(rel);
-    $('#note-path').textContent = rel;
+    const d = await api('/api/note?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : ''));
+    state.currentDir = relDir(treeRel);
+    $('#note-path').textContent = treeRel;
     const tags = d.meta?.tags || [];
     $('#note-tags').innerHTML = tags.length
       ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
       : '';
     $('#note-body').innerHTML = renderMarkdown(stripFrontmatter(d.content));
-    ui.view = { type: 'note', rel };
+    ui.view = { type: 'note', rel: treeRel };
     saveUI();
     renderCover();
     syncSelection();
@@ -922,7 +928,7 @@ function injectUploadButton() {
 
     ensureVditor().then(() => {
       if (state.currentRel) {
-        api('/api/note?rel=' + encodeURIComponent(state.currentRel)).then((d) => {
+        api(noteApiUrl('/api/note')).then((d) => {
           const fm = parseFrontmatter(d.content);
           $('#edit-title').value = fm.title || '';
           $('#edit-tags').value = (fm.tags || []).join(', ');
@@ -983,7 +989,7 @@ function injectUploadButton() {
     await api('/api/note', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rel: newRel, content }),
+      body: JSON.stringify({ rel: newRel, content, dir: state.currentNoteDir || '' }),
     });
     toast('已保存: ' + newRel);
     await Promise.all([loadTree(), loadTags(), loadStats()]);
@@ -1239,7 +1245,7 @@ function injectUploadButton() {
       const tags = (d.tags || []).map((s) => String(s).trim()).filter(Boolean);
       const keywords = (d.keywords || []).map((s) => String(s).trim()).filter(Boolean);
       const summary = String(d.summary || '').trim();
-      const note = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+      const note = await api(noteApiUrl('/api/note'));
       let content = note.content;
       let fm = null;
       let body = content;
@@ -1402,7 +1408,7 @@ function injectUploadButton() {
       });
       const text = d.markdown.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
       if (mode === 'append') {
-        const note = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+        const note = await api(noteApiUrl('/api/note'));
         const newContent = note.content.endsWith('\n') ? note.content + '\n' + text : note.content + '\n\n' + text;
         await api('/api/note', {
           method: 'PUT',
@@ -1571,7 +1577,7 @@ function injectUploadButton() {
     if (!state.currentRel) return toast('请先在左侧选择一篇笔记', true);
     try {
       if (act === 'insert') {
-        const note = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+        const note = await api(noteApiUrl('/api/note'));
         const newContent = note.content.endsWith('\n') ? note.content + '\n' + md : note.content + '\n\n' + md;
         await api('/api/note', {
           method: 'PUT',
