@@ -130,6 +130,12 @@ async function buildTree(notesDir, ignoreDirs) {
       const base = f.replace(/\.md$/i, '');
       const childRel = dirRel ? `${dirRel}/${f}` : f;
       const child = { name: f, relPath: childRel, type: 'file' };
+      // 获取文件大小和修改时间
+      try {
+        const fst = await fsp.stat(path.join(dirAbs, f));
+        child.size = fst.size;
+        child.mtimeMs = fst.mtimeMs;
+      } catch {}
       if (subDirs.has(base)) {
         const subRel = dirRel ? `${dirRel}/${base}` : base;
         const subNode = { name: base, relPath: subRel, type: 'dir', children: [], noteCount: 0 };

@@ -1572,10 +1572,10 @@ function injectUploadButton() {
 
   // ---------- settings ----------
   function openSettings() {
-    $('#cfg-notesdir').value = state.config.notesDir;
+    const dirs = state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []);
+    $('#cfg-notesdirs').value = dirs.join('\n');
     const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments');
     $('#cfg-ignore-dirs').value = ignoreDirs.join(', ');
-    // AI 配置
     const provider = state.config.ai?.provider || 'deepseek';
     $('#cfg-ai-provider').value = provider;
     $('#cfg-apikey').value = '';
@@ -1587,17 +1587,18 @@ function injectUploadButton() {
   }
 
   async function saveSettings() {
+    const dirsText = $('#cfg-notesdirs').value.trim();
+    const notesDirs = dirsText.split(/\n/).map((s) => s.trim()).filter(Boolean);
+    if (!notesDirs.length) return toast('请至少填写一个笔记目录', true);
     const ignoreDirs = $('#cfg-ignore-dirs').value
       .split(/[,，\s]+/)
       .map((s) => s.trim())
       .filter(Boolean);
-    // 附件目录固定过滤
     if (!ignoreDirs.includes('_attachments')) ignoreDirs.push('_attachments');
     const provider = $('#cfg-ai-provider').value;
     const apiKey = $('#cfg-apikey').value.trim();
     const baseUrl = $('#cfg-baseurl').value.trim();
     const model = $('#cfg-model').value.trim();
-    // AI 服务商默认配置
     const providerDefaults = {
       deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
       openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
@@ -1615,7 +1616,7 @@ function injectUploadButton() {
       model: model || defaults.model,
     };
     const body = {
-      notesDir: $('#cfg-notesdir').value.trim(),
+      notesDirs,
       index: { ignoreDirs },
       ai: aiConfig,
     };

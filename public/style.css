@@ -312,7 +312,7 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   width: auto !important;
   min-width: 0 !important;
   height: auto !important;
-  padding: 0 8px !important;
+  /* padding: 0 8px !important; */
 }
 #vditor-wrap .vditor-upload-btn svg { display: none !important; }
 #vditor-wrap .vditor-upload-btn::after {

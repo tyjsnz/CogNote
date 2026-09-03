@@ -23,6 +23,7 @@ const REVIEW_DIR = IS_PKG ? DATA_DIR : ROOT;
 
 const DEFAULT_CONFIG = {
   notesDir: '',
+  notesDirs: [],
   port: 8570,
   host: '127.0.0.1',
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
@@ -52,13 +53,19 @@ function loadConfig() {
     cfg.deepseek = { ...DEFAULT_CONFIG.deepseek, ...(cfg.deepseek || {}) };
     cfg.ai = { ...DEFAULT_CONFIG.ai, ...(cfg.ai || {}) };
     cfg.index = { ...DEFAULT_CONFIG.index, ...(cfg.index || {}) };
-    // _attachments 始终过滤
     if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
+    // 兼容旧 notesDir → notesDirs
+    if (!cfg.notesDirs || !cfg.notesDirs.length) {
+      cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
+    }
     return cfg;
   } catch (err) {
     const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
     const cfg = { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, ai: { ...DEFAULT_CONFIG.ai, ...(base.ai || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) } };
     if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
+    if (!cfg.notesDirs || !cfg.notesDirs.length) {
+      cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
+    }
     return cfg;
   }
 }
@@ -88,14 +95,20 @@ let ai = new DeepSeekAI(aiCfg);
 let review = null;
 
 function rebuildIndexer(incremental = false) {
-  const dir = (config.notesDir || '').trim();
-  // 空或无效的笔记目录：用一个空的临时目录扫描，保证服务可启动并提示配置
-  let scanDir = dir;
-  if (!scanDir || !fs.existsSync(scanDir)) {
-    scanDir = path.join(EXE_DIR, '.empty-notes');
-    try { fs.mkdirSync(scanDir, { recursive: true }); } catch {}
+  // 支持多目录：优先使用 notesDirs 数组，兼容旧 notesDir
+  let dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
+  if (!dirs.length && config.notesDir && fs.existsSync(config.notesDir)) {
+    dirs = [config.notesDir];
   }
-  indexer = new Indexer(scanDir, { ...config.index, ignoreDirs: config.index.ignoreDirs });
+  if (!dirs.length) {
+    // 没有有效目录：用临时空目录保证服务可启动
+    const scanDir = path.join(EXE_DIR, '.empty-notes');
+    try { fs.mkdirSync(scanDir, { recursive: true }); } catch {}
+    dirs = [scanDir];
+  }
+  // 向后兼容：notesDir 设为第一个目录
+  config.notesDir = dirs[0];
+  indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs });
   // v1.1: 尝试加载已保存的索引
   if (incremental && fs.existsSync(INDEX_PATH)) {
     const loadResult = indexer.load(INDEX_PATH);
@@ -103,6 +116,7 @@ function rebuildIndexer(incremental = false) {
       console.log(`[知识库] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
       const info = indexer.incrementalScan();
       search = new SearchEngine(indexer);
+      review = new ReviewManager(REVIEW_DIR);
       // 增量更新后保存
       indexer.save(INDEX_PATH);
       return info;
@@ -138,6 +152,8 @@ function publicConfig() {
   const c = JSON.parse(JSON.stringify(config));
   if (c.deepseek) delete c.deepseek.apiKey;
   if (c.ai) delete c.ai.apiKey;
+  // 确保 notesDirs 存在
+  if (!c.notesDirs) c.notesDirs = c.notesDir ? [c.notesDir] : [];
   return { ...c, aiConfigured: ai.isConfigured() };
 }
 
@@ -239,9 +255,21 @@ async function handleApi(pathname, req, res, url) {
 
   if (pathname === '/api/config' && req.method === 'POST') {
     const body = await readBody(req);
-    if (body.notesDir) {
+    if (body.notesDirs && Array.isArray(body.notesDirs)) {
+      // 验证所有目录存在
+      for (const d of body.notesDirs) {
+        if (d && !fs.existsSync(d)) throw new Error(`目录不存在: ${d}`);
+      }
+      config.notesDirs = body.notesDirs.filter(Boolean);
+      config.notesDir = config.notesDirs[0] || '';
+    } else if (body.notesDir) {
       if (!fs.existsSync(body.notesDir)) throw new Error(`目录不存在: ${body.notesDir}`);
       config.notesDir = body.notesDir;
+      if (!config.notesDirs || !config.notesDirs.length) {
+        config.notesDirs = [body.notesDir];
+      } else {
+        config.notesDirs[0] = body.notesDir;
+      }
     }
     if (body.port) config.port = body.port;
     if (body.host) config.host = body.host;
@@ -249,12 +277,11 @@ async function handleApi(pathname, req, res, url) {
     if (body.ai) config.ai = { ...config.ai, ...body.ai };
     if (body.index) {
       config.index = { ...config.index, ...body.index };
-      // _attachments 始终过滤
       if (config.index.ignoreDirs && !config.index.ignoreDirs.includes('_attachments')) {
         config.index.ignoreDirs.push('_attachments');
       }
     }
-    saveConfig({ notesDir: config.notesDir, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
+    saveConfig({ notesDir: config.notesDir, notesDirs: config.notesDirs, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
     rebuildIndexer();
     return sendJson(res, 200, publicConfig());
   }
@@ -274,8 +301,26 @@ async function handleApi(pathname, req, res, url) {
   }
 
   if (pathname === '/api/tree' && req.method === 'GET') {
-    const tree = await notesApi.buildTree(config.notesDir, config.index.ignoreDirs);
-    return sendJson(res, 200, { tree });
+    // 支持多目录：为每个目录构建子树，合并为根节点
+    const dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
+    if (!dirs.length) {
+      return sendJson(res, 200, { tree: { name: '知识库', relPath: '', type: 'dir', children: [], noteCount: 0 } });
+    }
+    if (dirs.length === 1) {
+      const tree = await notesApi.buildTree(dirs[0], config.index.ignoreDirs);
+      return sendJson(res, 200, { tree });
+    }
+    // 多目录：每个目录作为根节点的子节点
+    const root = { name: '知识库', relPath: '', type: 'dir', children: [], noteCount: 0 };
+    for (const dir of dirs) {
+      const subtree = await notesApi.buildTree(dir, config.index.ignoreDirs);
+      // 用目录名作为顶层节点名称
+      subtree.name = path.basename(dir);
+      subtree._sourceDir = dir; // 标记来源目录
+      root.children.push(subtree);
+      root.noteCount += subtree.noteCount;
+    }
+    return sendJson(res, 200, { tree: root });
   }
 
   if (pathname === '/api/search' && req.method === 'GET') {
