@@ -34,12 +34,14 @@
 
   function inline(src) {
     let s = src;
-    // 行内代码先处理，避免公式替换误伤代码块
-    s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + escapeHtml(c) + '</code>');
+    // 处理 Markdown 转义序列（Vditor 将 $$ 存为 \$ 和 \\）
+    // \\  → \  先于数学公式 regex，保证 \rightarrow 等 LaTeX 命令正确
+    s = s.replace(/\\\\/g, '\\');
+    // \$  → $  使 Vditor 保存的 \$...\$ 能被数学公式 regex 正确匹配
+    s = s.replace(/\\\$/g, '$');
 
-    // 数学公式提取为占位符，防止被加粗/斜体等规则破坏
+    // 数学公式优先提取，防止 HTML 转义破坏 < > 等字符
     const mathCache = [];
-    // 段内块级公式 $$...$$
     s = s.replace(/\$\$(.+?)\$\$/g, (_, m) => {
       mathCache.push(renderBlockMath(m));
       return '\u0000KX' + (mathCache.length - 1) + '\u0000';
@@ -53,6 +55,17 @@
       return '\u0000KX' + (mathCache.length - 1) + '\u0000';
     });
 
+    // HTML 转义（不影响已提取的数学公式占位符）
+    s = escapeHtml(s);
+
+    // 恢复数学公式
+    if (mathCache.length) {
+      s = s.replace(/\u0000KX(\d+)\u0000/g, (_, n) => mathCache[+n]);
+    }
+
+    // 行内代码
+    s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + escapeHtml(c) + '</code>');
+
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<img alt="$1" src="$2" title="$3" style="max-width:100%">');
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<a href="$2" title="$3" target="_blank">$1</a>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -61,9 +74,6 @@
     s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
     s = s.replace(/\^([^^]+)\^/g, '<sup>$1</sup>');
 
-    if (mathCache.length) {
-      s = s.replace(/\u0000KX(\d+)\u0000/g, (_, n) => mathCache[+n]);
-    }
     return s;
   }
 
@@ -74,7 +84,7 @@
     let i = 0;
     function para(text) {
       if (!text.trim()) return '';
-      return '<p>' + inline(escapeHtml(text).replace(/^#{1,6}\s+/, '')) + '</p>';
+      return '<p>' + inline(text) + '</p>';
     }
     // 判断第 idx 行是否为表格起始行（当前行含 | 且下一行为分隔行）
     function isTableStart(idx) {
@@ -153,7 +163,7 @@
       const h = line.match(/^(#{1,6})\s+(.*)$/);
       if (h) {
         const lv = h[1].length;
-        html += '<h' + lv + ' id="toc-' + headingSeq++ + '">' + inline(escapeHtml(h[2])) + '</h' + lv + '>\n';
+        html += '<h' + lv + ' id="toc-' + headingSeq++ + '">' + inline(h[2]) + '</h' + lv + '>\n';
         i++;
         continue;
       }
@@ -179,13 +189,13 @@
         header.forEach((cell, idx) => {
           const a = (aligns[idx + 1] || '').trim();
           const align = a.startsWith(':') && a.endsWith(':') ? ' center' : a.startsWith(':') ? ' left' : a.endsWith(':') ? ' right' : '';
-          t += '<th style="text-align:' + (align.trim() || 'left') + '">' + inline(escapeHtml(cell)) + '</th>';
+          t += '<th style="text-align:' + (align.trim() || 'left') + '">' + inline(cell) + '</th>';
         });
         t += '</tr></thead><tbody>';
         for (const r of rows) {
           t += '<tr>';
           header.forEach((_, idx) => {
-            t += '<td>' + inline(escapeHtml(r[idx] || '')) + '</td>';
+            t += '<td>' + inline(r[idx] || '') + '</td>';
           });
           t += '</tr>';
         }
@@ -215,7 +225,7 @@
           } else {
             listHtml += '<li>';
           }
-          listHtml += inline(escapeHtml(item.text));
+          listHtml += inline(item.text);
         }
         while (stacks.length) {
           listHtml += '</li></' + stacks.pop().tag + '>';
