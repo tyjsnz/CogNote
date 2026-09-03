@@ -356,7 +356,7 @@
     move() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
-      state.currentRel = n.rel;
+      state.currentRel = stripDirPrefix(n.rel);
       openMoveDialog();
     },
     async 'export-pdf'() {
@@ -469,11 +469,11 @@
       await api('/api/note/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: n.rel }),
+        body: JSON.stringify({ rel: stripDirPrefix(n.rel) }),
       });
       toast(subNum > 0 ? '已删除（含子笔记）' : '已删除');
       await reloadTree();
-      if (state.currentRel === n.rel) state.currentRel = null;
+      if (state.currentRel === stripDirPrefix(n.rel)) state.currentRel = null;
       selectDir(state.currentDir || '');
     },
   };
@@ -580,22 +580,35 @@
   }
 
   // ---------- note open/view ----------
+  // ---------- 多目录前缀处理 ----------
+  // 多目录模式下，tree 中的 relPath 以目录名开头（如 "开发文档/file.md"），
+  // 但 API 需要原始相对路径（如 "file.md"）。根据 notesDirs 还原。
+  function stripDirPrefix(treeRel) {
+    if (!treeRel || !state.config?.notesDirs?.length) return treeRel;
+    const dirs = state.config.notesDirs || [];
+    for (const dir of dirs) {
+      const dirName = dir.replace(/^.*[/\\]/, '');
+      if (treeRel === dirName) return '';
+      if (treeRel.startsWith(dirName + '/')) return treeRel.slice(dirName.length + 1);
+    }
+    return treeRel;
+  }
+
   async function openNote(rel) {
-    state.currentRel = rel;
+    state.currentRel = stripDirPrefix(rel);
     state.editing = false;
     $('#search-results').classList.add('hidden');
     $('#editor').classList.add('hidden');
     $('#viewer').classList.remove('hidden');
     $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
     $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(rel) + '"]')?.classList.add('active');
-
+    const apiRel = stripDirPrefix(rel);
     const isPdf = /\.pdf$/i.test(rel);
     if (isPdf) {
-      // PDF 预览：直接嵌入 iframe
       state.currentDir = relDir(rel);
       $('#note-path').textContent = rel;
       $('#note-tags').innerHTML = '';
-      const fileUrl = '/api/file?rel=' + encodeURIComponent(rel);
+      const fileUrl = '/api/file?rel=' + encodeURIComponent(apiRel);
       $('#note-body').innerHTML =
         '<div class="pdf-viewer">' +
         '<iframe src="' + fileUrl + '" title="' + esc(rel) + '" allow="fullscreen"></iframe>' +
@@ -606,10 +619,9 @@
       syncSelection();
       return;
     }
-
-    const d = await api('/api/note?rel=' + encodeURIComponent(rel));
+    const d = await api('/api/note?rel=' + encodeURIComponent(apiRel));
     state.currentDir = relDir(rel);
-    $('#note-path').textContent = d.relPath;
+    $('#note-path').textContent = rel;
     const tags = d.meta?.tags || [];
     $('#note-tags').innerHTML = tags.length
       ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
@@ -619,7 +631,6 @@
     saveUI();
     renderCover();
     syncSelection();
-    // 复习模式：显示评分面板
     showReviewPanel(state.reviewMode);
     state.reviewMode = false;
   }

@@ -27,5 +27,9 @@
     "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-chat",
     "timeoutMs": 120000
-  }
+  },
+  "notesDirs": [
+    "D:\\prj\\fnos_sync_data\\prj\\开发文档",
+    "D:\\prj\\fnos_sync_data\\英语资料"
+  ]
 }

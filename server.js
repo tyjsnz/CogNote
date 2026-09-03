@@ -310,13 +310,24 @@ async function handleApi(pathname, req, res, url) {
       const tree = await notesApi.buildTree(dirs[0], config.index.ignoreDirs);
       return sendJson(res, 200, { tree });
     }
-    // 多目录：每个目录作为根节点的子节点
+    // 多目录：每个目录作为根节点的子节点，用 _prefix 标记来源
     const root = { name: '知识库', relPath: '', type: 'dir', children: [], noteCount: 0 };
     for (const dir of dirs) {
       const subtree = await notesApi.buildTree(dir, config.index.ignoreDirs);
-      // 用目录名作为顶层节点名称
-      subtree.name = path.basename(dir);
-      subtree._sourceDir = dir; // 标记来源目录
+      const dirName = path.basename(dir);
+      subtree.name = dirName;
+      subtree._sourceDir = dir;
+      // 用目录名作为唯一 relPath 前缀，所有子节点加上此前缀
+      subtree._prefix = dirName;
+      subtree.relPath = dirName;
+      // 递归为所有子节点加上前缀
+      const prefixChildren = (node, prefix) => {
+        for (const c of node.children || []) {
+          c.relPath = prefix ? prefix + '/' + c.relPath : c.relPath;
+          if (c.children) prefixChildren(c, prefix);
+        }
+      };
+      prefixChildren(subtree, dirName);
       root.children.push(subtree);
       root.noteCount += subtree.noteCount;
     }
