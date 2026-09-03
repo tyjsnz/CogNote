@@ -222,6 +222,23 @@
   <div id="toast" class="toast hidden"></div>
   <div id="ctx-menu" class="ctx-menu hidden"></div>
 
+  <!-- 复习评分浮动面板 -->
+  <div id="review-score-panel" class="review-score-panel hidden">
+    <div class="review-score-title">📝 标记复习掌握程度</div>
+    <div class="review-score-btns">
+      <button class="score-btn score-0" data-score="0" title="完全不记得">0</button>
+      <button class="score-btn score-1" data-score="1" title="几乎忘了">1</button>
+      <button class="score-btn score-2" data-score="2" title="勉强记得">2</button>
+      <button class="score-btn score-3" data-score="3" title="基本记得">3</button>
+      <button class="score-btn score-4" data-score="4" title="很熟悉">4</button>
+      <button class="score-btn score-5" data-score="5" title="完美掌握">5</button>
+    </div>
+    <div class="review-score-labels">
+      <span>忘了</span><span>不熟</span><span>模糊</span><span>记得</span><span>熟悉</span><span>掌握</span>
+    </div>
+    <button id="btn-review-dismiss" class="review-score-dismiss">跳过</button>
+  </div>
+
   <script src="vendor/vditor/dist/index.min.js"></script>
   <script src="vendor/vditor/dist/js/katex/katex.min.js"></script>
   <script src="markdown.js"></script>

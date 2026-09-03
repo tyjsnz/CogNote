@@ -13,6 +13,7 @@
     searchMode: false,
     activeTag: '',
     prevRel: null,        // 新建/编辑取消时返回的原笔记
+    reviewMode: false,    // 复习模式：打开笔记后显示评分面板
   };
 
   // ---------- 界面状态持久化（折叠/当前笔记/目录开关）----------
@@ -618,6 +619,9 @@
     saveUI();
     renderCover();
     syncSelection();
+    // 复习模式：显示评分面板
+    showReviewPanel(state.reviewMode);
+    state.reviewMode = false;
   }
 
   function selectDir(dirRel) {
@@ -708,6 +712,33 @@
     const d = new Date(ms);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') +
       ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  // ---------- 复习评分浮动面板 ----------
+  function showReviewPanel(show) {
+    const panel = $('#review-score-panel');
+    if (!panel) return;
+    if (show && state.currentRel) {
+      panel.classList.remove('hidden');
+    } else {
+      panel.classList.add('hidden');
+    }
+  }
+
+  async function markReview(quality) {
+    if (!state.currentRel) return;
+    try {
+      await api('/api/review/mark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rel: state.currentRel, quality }),
+      });
+      const labels = ['完全不记得', '几乎忘了', '勉强记得', '基本记得', '很熟悉', '完美掌握'];
+      toast('已标记：' + labels[quality] + '（' + quality + '/5）');
+    } catch (e) {
+      toast('标记失败: ' + e.message, true);
+    }
+    $('#review-score-panel').classList.add('hidden');
   }
 
   // ---------- 标题目录（封面）----------
@@ -1313,20 +1344,34 @@ function injectUploadButton() {
       if (!d.items?.length) {
         html += '<p style="color:var(--muted)">今日无需复习，干得好！</p>';
       } else {
-        html += '<ul style="margin:4px 0;padding-left:18px;">';
+        html += `<div id="review-list-toggle" style="cursor:pointer;color:var(--primary);font-size:13px;margin-bottom:4px;">▼ 展开复习列表（${d.items.length} 篇）</div>`;
+        html += '<ul id="review-list" style="margin:4px 0;padding-left:18px;display:none;">';
         for (const item of d.items) {
           const label = item.isNew ? '📖 新' : '🔄 待复习';
           html += `<li><a href="#" class="review-link" data-rel="${esc(item.relPath)}" style="color:var(--primary);text-decoration:none;">${esc(item.title)}</a> <span style="color:var(--muted);font-size:12px;">${label}</span></li>`;
         }
         html += '</ul>';
-        html += '<div style="margin-top:8px;font-size:12px;color:var(--muted);">点击笔记打开后，在 AI 助手中标记复习掌握程度（0-5分）</div>';
+        html += '<div style="margin-top:8px;font-size:12px;color:var(--muted);">打开笔记后，右下角出现评分面板，打分后自动标记复习完成。</div>';
       }
       box.innerHTML = html;
+      // 折叠/展开
+      const toggle = box.querySelector('#review-list-toggle');
+      const list = box.querySelector('#review-list');
+      if (toggle && list) {
+        toggle.addEventListener('click', () => {
+          const open = list.style.display !== 'none';
+          list.style.display = open ? 'none' : '';
+          toggle.textContent = open ? `▶ 展开复习列表（${d.items.length} 篇）` : `▼ 收起复习列表`;
+        });
+      }
       box.querySelectorAll('.review-link').forEach((a) => {
         a.addEventListener('click', (ev) => {
           ev.preventDefault();
           const rel = a.dataset.rel;
-          if (rel) openNote(rel);
+          if (rel) {
+            state.reviewMode = true;
+            openNote(rel);
+          }
         });
       });
     } catch (e) {
@@ -1793,6 +1838,12 @@ function injectUploadButton() {
     // v1.3: 双链图
     $('#btn-show-links').addEventListener('click', openLinkGraph);
     $('#btn-links-close').addEventListener('click', () => $('#dialog-links').classList.add('hidden'));
+
+    // 复习评分面板
+    document.querySelectorAll('.score-btn').forEach((btn) => {
+      btn.addEventListener('click', () => markReview(parseInt(btn.dataset.score)));
+    });
+    $('#btn-review-dismiss').addEventListener('click', () => $('#review-score-panel').classList.add('hidden'));
 
     $('#btn-move-newfolder').addEventListener('click', newMoveSubfolder);
     $('#btn-move-cancel').addEventListener('click', () => $('#dialog-move').classList.add('hidden'));

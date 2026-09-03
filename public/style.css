@@ -430,3 +430,45 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .ctx-item:hover { background: var(--code-bg); }
 .ctx-item.danger { color: var(--danger); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+
+/* 复习评分浮动面板 */
+.review-score-panel {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  padding: 16px 20px;
+  z-index: 90;
+  text-align: center;
+  min-width: 240px;
+  animation: fadeInUp 0.2s ease;
+}
+.review-score-panel.hidden { display: none; }
+.review-score-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.review-score-btns { display: flex; gap: 6px; justify-content: center; margin-bottom: 4px; }
+.score-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border);
+  background: var(--panel); color: var(--text); font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.score-btn:hover { transform: scale(1.15); }
+.score-0 { border-color: #e74c3c; color: #e74c3c; }
+.score-0:hover { background: #e74c3c; color: #fff; }
+.score-1 { border-color: #e67e22; color: #e67e22; }
+.score-1:hover { background: #e67e22; color: #fff; }
+.score-2 { border-color: #f1c40f; color: #f1c40f; }
+.score-2:hover { background: #f1c40f; color: #fff; }
+.score-3 { border-color: #2ecc71; color: #2ecc71; }
+.score-3:hover { background: #2ecc71; color: #fff; }
+.score-4 { border-color: #3498db; color: #3498db; }
+.score-4:hover { background: #3498db; color: #fff; }
+.score-5 { border-color: #9b59b6; color: #9b59b6; }
+.score-5:hover { background: #9b59b6; color: #fff; }
+.review-score-labels { display: flex; gap: 6px; justify-content: center; font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+.review-score-labels span { width: 36px; text-align: center; }
+.review-score-dismiss { font-size: 12px; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+.review-score-dismiss:hover { background: var(--code-bg); color: var(--text); }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
