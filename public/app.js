@@ -357,7 +357,8 @@
     move() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
-      state.currentRel = stripDirPrefix(n.rel);
+      const { rel } = stripDirPrefix(n.rel);
+      state.currentRel = rel;
       openMoveDialog();
     },
     async 'export-pdf'() {
@@ -468,14 +469,15 @@
         ? '确定删除该笔记？\n' + n.rel + '\n\n其下还有 ' + subNum + ' 个子笔记，将连同其子笔记目录一并删除！'
         : '确定删除该笔记？\n' + n.rel;
       if (!confirm(msg)) return;
+      const { rel: delRel } = stripDirPrefix(n.rel);
       await api('/api/note/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: stripDirPrefix(n.rel) }),
+        body: JSON.stringify({ rel: delRel }),
       });
       toast(subNum > 0 ? '已删除（含子笔记）' : '已删除');
       await reloadTree();
-      if (state.currentRel === stripDirPrefix(n.rel)) state.currentRel = null;
+      if (state.currentRel === delRel) state.currentRel = null;
       selectDir(state.currentDir || '');
     },
   };

@@ -7,6 +7,11 @@
 - 新增 Vditor 转义序列支持：`\$` → `$`、`\\` → `\`，使 `\$\\rightarrow\$` 等数学公式正确渲染
 - 移除 `para()` 函数中危险的 `text.replace(/^#{1,6}\s+/, '')`，避免段落开头的 `#` 被错误剥离
 
+### 修复：右键归类/移动时 `state.currentRel.split is not a function`
+- 修复 `move()` 函数中 `stripDirPrefix(n.rel)` 返回 `{ rel, dir }` 对象却直接赋值给 `state.currentRel` 的问题
+- 修复 `delete()` 函数中 `stripDirPrefix(n.rel)` 未解构就直接作为 API 参数的问题
+- 修复 `delete()` 函数中 `state.currentRel === stripDirPrefix(n.rel)` 对象与字符串比较永远为 false 的问题
+
 ### 新增：多笔记目录支持
 - 配置新增 `notesDirs` 数组，支持同时加载多个笔记目录
 - 设置面板改为 textarea 多行输入，每行一个目录路径
