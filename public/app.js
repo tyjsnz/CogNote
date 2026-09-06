@@ -666,18 +666,24 @@
       return;
     }
     // Markdown 笔记
-    const d = await api('/api/note?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : ''));
-    const tags = d.meta?.tags || [];
-    $('#note-tags').innerHTML = tags.length
-      ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
-      : '';
-    $('#note-body').innerHTML = renderMarkdown(stripFrontmatter(d.content));
-    ui.view = { type: 'note', rel: treeRel };
-    saveUI();
-    renderCover();
-    syncSelection();
-    showReviewPanel(state.reviewMode);
-    state.reviewMode = false;
+    try {
+      const d = await api('/api/note?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : ''));
+      const tags = d.meta?.tags || [];
+      $('#note-tags').innerHTML = tags.length
+        ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
+        : '';
+      $('#note-body').innerHTML = renderMarkdown(stripFrontmatter(d.content));
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      showReviewPanel(state.reviewMode);
+      state.reviewMode = false;
+    } catch (e) {
+      $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+    }
   }
 
   function selectDir(dirRel) {

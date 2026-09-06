@@ -24,9 +24,18 @@ function fromPosix(p) {
 
 async function readNote(notesDir, relPath) {
   const abs = safeResolve(notesDir, relPath);
-  const content = await fsp.readFile(abs, 'utf8');
-  const st = await fsp.stat(abs);
-  return { relPath: toPosix(relPath), content, size: st.size, mtimeMs: st.mtimeMs };
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 15000);
+  try {
+    const content = await fsp.readFile(abs, { encoding: 'utf8', signal: ac.signal });
+    const st = await fsp.stat(abs);
+    return { relPath: toPosix(relPath), content, size: st.size, mtimeMs: st.mtimeMs };
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('文件读取超时，请检查 NAS/云盘是否已挂载');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function writeNote(notesDir, relPath, content) {

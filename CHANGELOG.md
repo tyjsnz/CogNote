@@ -9,6 +9,11 @@
 - 点击 Office 文档等提供下载/在新标签页打开按钮
 - 定义 `COMMON_FILES_RE` 统一管理文件类型过滤规则
 
+### 修复：文件读取超时与错误处理
+- `readNote` 添加 15 秒超时（AbortController），NAS/云盘不可用时返回友好错误而非挂起
+- 前端 `openNote` markdown 路径增加 try-catch，读取失败时显示错误提示
+- `/api/file` 补充 `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` MIME 类型
+
 ## 2026-09-03
 
 ### 修复：Markdown 预览渲染错误（数学公式 & 排版）

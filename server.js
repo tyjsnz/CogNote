@@ -447,6 +447,12 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       '.svg': 'image/svg+xml',
       '.txt': 'text/plain',
       '.md': 'text/markdown',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     }[ext] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': mime });
     fs.createReadStream(abs).pipe(res);
