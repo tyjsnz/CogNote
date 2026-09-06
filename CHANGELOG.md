@@ -12,6 +12,10 @@
 - 修复 `delete()` 函数中 `stripDirPrefix(n.rel)` 未解构就直接作为 API 参数的问题
 - 修复 `delete()` 函数中 `state.currentRel === stripDirPrefix(n.rel)` 对象与字符串比较永远为 false 的问题
 
+### 修复：上传附件时 `Unexpected token 'N', "Not Found" is not valid JSON`
+- 修复客户端上传处理中 `res.json()` 在 `res.ok` 前调用，服务端返回非 JSON 响应时解析失败的问题
+- 上传前先检查 `Content-Type` 是否为 `application/json`，非 JSON 时用 `res.text()` 读取错误信息
+
 ### 新增：多笔记目录支持
 - 配置新增 `notesDirs` 数组，支持同时加载多个笔记目录
 - 设置面板改为 textarea 多行输入，每行一个目录路径

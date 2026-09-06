@@ -1809,7 +1809,14 @@ function injectUploadButton() {
         formData.append('file', file);
         try {
           const res = await fetch('/api/upload', { method: 'POST', body: formData });
-          const data = await res.json();
+          let data;
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            data = await res.json();
+          } else {
+            const text = await res.text();
+            throw new Error(text || '上传失败（服务器返回非 JSON 响应）');
+          }
           if (!res.ok) throw new Error(data.error || '上传失败');
           // 插入到编辑器
           const md = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i)
