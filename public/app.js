@@ -611,12 +611,12 @@
     $('#viewer').classList.remove('hidden');
     $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
     $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(treeRel) + '"]')?.classList.add('active');
-    const isPdf = /\.pdf$/i.test(treeRel);
-    if (isPdf) {
-      state.currentDir = relDir(treeRel);
-      $('#note-path').textContent = treeRel;
-      $('#note-tags').innerHTML = '';
-      const fileUrl = '/api/file?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '');
+    const fileUrl = '/api/file?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '');
+    state.currentDir = relDir(treeRel);
+    $('#note-path').textContent = treeRel;
+    $('#note-tags').innerHTML = '';
+    // PDF
+    if (/\.pdf$/i.test(treeRel)) {
       $('#note-body').innerHTML =
         '<div class="pdf-viewer">' +
         '<iframe src="' + fileUrl + '" title="' + esc(treeRel) + '" allow="fullscreen"></iframe>' +
@@ -627,9 +627,46 @@
       syncSelection();
       return;
     }
+    // 图片
+    if (/\.(png|jpe?g|gif|webp|svg)$/i.test(treeRel)) {
+      $('#note-body').innerHTML = '<div style="padding:16px;text-align:center"><img src="' + fileUrl + '" alt="' + esc(treeRel) + '" style="max-width:100%;height:auto;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.1)"></div>';
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
+    // 文本文件
+    if (/\.txt$/i.test(treeRel)) {
+      try {
+        const r = await fetch(fileUrl);
+        const text = await r.text();
+        $('#note-body').innerHTML = '<pre style="background:var(--code-bg);padding:16px;border-radius:8px;overflow-x:auto;line-height:1.6;font-size:14px;white-space:pre-wrap;word-break:break-word">' + esc(text) + '</pre>';
+      } catch (e) {
+        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+      }
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
+    // Office 文档等其它文件：提供下载链接
+    if (!/\.md$/i.test(treeRel)) {
+      $('#note-body').innerHTML =
+        '<div style="padding:40px;text-align:center;color:var(--muted)">' +
+        '<div style="font-size:48px;margin-bottom:16px">📄</div>' +
+        '<div style="font-size:16px;margin-bottom:8px;font-weight:600">' + esc(treeRel) + '</div>' +
+        '<a href="' + fileUrl + '" target="_blank" style="display:inline-block;padding:10px 24px;background:var(--accent);color:#fff;border-radius:8px;text-decoration:none;font-size:15px">⬇ 下载 / 在新标签页中打开</a>' +
+        '</div>';
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
+    // Markdown 笔记
     const d = await api('/api/note?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : ''));
-    state.currentDir = relDir(treeRel);
-    $('#note-path').textContent = treeRel;
     const tags = d.meta?.tags || [];
     $('#note-tags').innerHTML = tags.length
       ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')

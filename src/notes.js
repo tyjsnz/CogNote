@@ -2,6 +2,9 @@ const path = require('node:path');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 
+// 支持在目录树中显示和打开的常见文件类型
+const COMMON_FILES_RE = /\.(md|pdf|txt|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?)$/i;
+
 function safeResolve(baseDir, relPath) {
   const base = path.resolve(baseDir);
   const target = path.resolve(base, relPath);
@@ -88,7 +91,7 @@ async function buildTree(notesDir, ignoreDirs) {
         if (ignore.has(e.name)) continue;
         dirs.push(e.name);
 } else if (e.isFile()) {
-      if (/\.md$/i.test(e.name) || /\.pdf$/i.test(e.name)) files.push(e.name);
+      if (COMMON_FILES_RE.test(e.name)) files.push(e.name);
     } else if (e.isSymbolicLink()) {
         // 同步盘（fnos_sync_data 等）中的文件可能是 reparse point / 符号链接
         const abs = path.join(dirAbs, e.name);
@@ -109,7 +112,7 @@ async function buildTree(notesDir, ignoreDirs) {
           if (visited.has(real)) continue; // 防止符号链接目录形成环
           visited.add(real);
           dirs.push(e.name);
-        } else if (st.isFile() && /\.md$/i.test(e.name)) {
+        } else if (st.isFile() && COMMON_FILES_RE.test(e.name)) {
           files.push(e.name);
         }
       }
@@ -169,7 +172,7 @@ async function walkMdRel(notesDir, dirRel) {
       const full = path.join(a, e.name);
       if (e.isDirectory()) {
         await rec(full, reld + e.name, visited);
-      } else if (e.isFile() && (/\.md$/i.test(e.name) || /\.pdf$/i.test(e.name))) {
+      } else if (e.isFile() && COMMON_FILES_RE.test(e.name)) {
         out.push(reld + e.name);
       } else if (e.isSymbolicLink()) {
         let st;
@@ -188,7 +191,7 @@ async function walkMdRel(notesDir, dirRel) {
           if (visited.has(real)) continue;
           visited.add(real);
           await rec(full, reld + e.name, visited);
-        } else if (st.isFile() && (/\.md$/i.test(e.name) || /\.pdf$/i.test(e.name))) {
+        } else if (st.isFile() && COMMON_FILES_RE.test(e.name)) {
           out.push(reld + e.name);
         }
       }
