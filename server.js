@@ -625,7 +625,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname.startsWith('/api/')) {
       const handled = await handleApi(pathname, req, res, url);
-      if (handled === null) return notFound(res);
+      if (handled === null) return sendJson(res, 404, { ok: false, error: '接口不存在: ' + pathname });
       return;
     }
     await serveStatic(pathname, res);

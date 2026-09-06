@@ -15,6 +15,7 @@
 ### 修复：上传附件时 `Unexpected token 'N', "Not Found" is not valid JSON`
 - 修复客户端上传处理中 `res.json()` 在 `res.ok` 前调用，服务端返回非 JSON 响应时解析失败的问题
 - 上传前先检查 `Content-Type` 是否为 `application/json`，非 JSON 时用 `res.text()` 读取错误信息
+- 修复服务端 API 路由未匹配时返回纯文本 `Not Found`，改为返回 JSON 格式错误信息，便于客户端解析
 
 ### 新增：多笔记目录支持
 - 配置新增 `notesDirs` 数组，支持同时加载多个笔记目录
