@@ -49,6 +49,7 @@
           <div class="note-path" id="note-path"></div>
           <div class="note-actions">
             <button id="btn-cover" title="显示 / 隐藏标题目录">📑 目录</button>
+            <button id="btn-review-enroll" title="加入复习计划">📚 加入复习</button>
             <button id="btn-edit" title="编辑">✏️ 编辑</button>
             <button id="btn-new" title="在当前目录新建笔记">➕ 新建</button>
             <button id="btn-move" title="移动 / 归类">📁 归类</button>
@@ -157,6 +158,9 @@
       <h3>⚙️ 设置</h3>
       <label>笔记目录（每行一个路径）
         <textarea id="cfg-notesdirs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;font-family:monospace;resize:vertical;" placeholder="D:\notes\dir1&#10;D:\notes\dir2"></textarea>
+      </label>
+      <label>复习目录（每行一个路径，留空则不启用目录级复习计划）
+        <textarea id="cfg-reviewdirs" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;font-family:monospace;resize:vertical;" placeholder="D:\notes\dir1&#10;D:\notes\dir2"></textarea>
       </label>
       <label>扫描过滤目录（逗号分隔，_attachments 固定过滤）
         <input id="cfg-ignore-dirs" type="text" placeholder=".git, node_modules, img, images, .obsidian">

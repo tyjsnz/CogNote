@@ -601,6 +601,50 @@
     return base + '?rel=' + encodeURIComponent(rel || state.currentRel) + (d ? '&dir=' + encodeURIComponent(d) : '');
   }
 
+  // ---------- 复习计划管理 ----------
+  async function checkReviewEnrollStatus(rel) {
+    try {
+      const d = await api('/api/review/status?rel=' + encodeURIComponent(rel));
+      return d.enrolled;
+    } catch {
+      return false;
+    }
+  }
+
+  async function updateReviewEnrollButton(rel) {
+    const btn = $('#btn-review-enroll');
+    if (!btn || !rel) return;
+    const enrolled = await checkReviewEnrollStatus(rel);
+    btn.textContent = enrolled ? '📚 移出复习' : '📚 加入复习';
+    btn.title = enrolled ? '从复习计划中移除' : '加入复习计划';
+    btn.dataset.enrolled = enrolled ? 'true' : 'false';
+  }
+
+  async function toggleReviewEnroll(rel) {
+    if (!rel) return;
+    try {
+      const enrolled = await checkReviewEnrollStatus(rel);
+      if (enrolled) {
+        await api('/api/review/unenroll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rel }),
+        });
+        toast('已从复习计划中移除');
+      } else {
+        await api('/api/review/enroll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rel }),
+        });
+        toast('已加入复习计划');
+      }
+      await updateReviewEnrollButton(rel);
+    } catch (e) {
+      toast('操作失败: ' + e.message, true);
+    }
+  }
+
   async function openNote(treeRel) {
     const { rel, dir } = stripDirPrefix(treeRel);
     state.currentRel = rel;
@@ -679,6 +723,7 @@
       syncSelection();
       showReviewPanel(state.reviewMode);
       state.reviewMode = false;
+      updateReviewEnrollButton(rel);
     } catch (e) {
       $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
       ui.view = { type: 'note', rel: treeRel };
@@ -1681,6 +1726,8 @@ function injectUploadButton() {
   function openSettings() {
     const dirs = state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []);
     $('#cfg-notesdirs').value = dirs.join('\n');
+    const reviewDirs = state.config.reviewDirs || [];
+    $('#cfg-reviewdirs').value = reviewDirs.join('\n');
     const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments');
     $('#cfg-ignore-dirs').value = ignoreDirs.join(', ');
     const provider = state.config.ai?.provider || 'deepseek';
@@ -1697,6 +1744,8 @@ function injectUploadButton() {
     const dirsText = $('#cfg-notesdirs').value.trim();
     const notesDirs = dirsText.split(/\n/).map((s) => s.trim()).filter(Boolean);
     if (!notesDirs.length) return toast('请至少填写一个笔记目录', true);
+    const reviewDirsText = $('#cfg-reviewdirs').value.trim();
+    const reviewDirs = reviewDirsText.split(/\n/).map((s) => s.trim()).filter(Boolean);
     const ignoreDirs = $('#cfg-ignore-dirs').value
       .split(/[,，\s]+/)
       .map((s) => s.trim())
@@ -1711,7 +1760,7 @@ function injectUploadButton() {
       openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
       claude: { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
       moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
-      zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+      zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/4', model: 'glm-4-flash' },
       qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
       custom: { baseUrl: '', model: '' },
     };
@@ -1724,6 +1773,7 @@ function injectUploadButton() {
     };
     const body = {
       notesDirs,
+      reviewDirs,
       index: { ignoreDirs },
       ai: aiConfig,
     };
@@ -1827,6 +1877,7 @@ function injectUploadButton() {
     $('#btn-new').addEventListener('click', newNote);
     $('#btn-move').addEventListener('click', openMoveDialog);
     $('#btn-delete').addEventListener('click', deleteNote);
+    $('#btn-review-enroll').addEventListener('click', () => toggleReviewEnroll(state.currentRel));
 
     $('#btn-cover').addEventListener('click', () => {
       ui.coverOn = !ui.coverOn;

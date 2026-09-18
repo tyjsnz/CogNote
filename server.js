@@ -24,6 +24,7 @@ const REVIEW_DIR = IS_PKG ? DATA_DIR : ROOT;
 const DEFAULT_CONFIG = {
   notesDir: '',
   notesDirs: [],
+  reviewDirs: [],
   port: 8570,
   host: '127.0.0.1',
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
@@ -58,6 +59,8 @@ function loadConfig() {
     if (!cfg.notesDirs || !cfg.notesDirs.length) {
       cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
     }
+    // 确保 reviewDirs 存在
+    if (!cfg.reviewDirs) cfg.reviewDirs = [];
     return cfg;
   } catch (err) {
     const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -66,6 +69,8 @@ function loadConfig() {
     if (!cfg.notesDirs || !cfg.notesDirs.length) {
       cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
     }
+    // 确保 reviewDirs 存在
+    if (!cfg.reviewDirs) cfg.reviewDirs = [];
     return cfg;
   }
 }
@@ -154,6 +159,8 @@ function publicConfig() {
   if (c.ai) delete c.ai.apiKey;
   // 确保 notesDirs 存在
   if (!c.notesDirs) c.notesDirs = c.notesDir ? [c.notesDir] : [];
+  // 确保 reviewDirs 存在
+  if (!c.reviewDirs) c.reviewDirs = [];
   return { ...c, aiConfigured: ai.isConfigured() };
 }
 
@@ -271,6 +278,13 @@ async function handleApi(pathname, req, res, url) {
         config.notesDirs[0] = body.notesDir;
       }
     }
+    if (body.reviewDirs && Array.isArray(body.reviewDirs)) {
+      // 验证所有目录存在
+      for (const d of body.reviewDirs) {
+        if (d && !fs.existsSync(d)) throw new Error(`目录不存在: ${d}`);
+      }
+      config.reviewDirs = body.reviewDirs.filter(Boolean);
+    }
     if (body.port) config.port = body.port;
     if (body.host) config.host = body.host;
     if (body.deepseek) config.deepseek = { ...config.deepseek, ...body.deepseek };
@@ -281,7 +295,7 @@ async function handleApi(pathname, req, res, url) {
         config.index.ignoreDirs.push('_attachments');
       }
     }
-    saveConfig({ notesDir: config.notesDir, notesDirs: config.notesDirs, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
+    saveConfig({ notesDir: config.notesDir, notesDirs: config.notesDirs, reviewDirs: config.reviewDirs, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
     rebuildIndexer();
     return sendJson(res, 200, publicConfig());
   }
@@ -604,8 +618,17 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   // v1.4: 复习计划
   if (pathname === '/api/review/due' && req.method === 'GET') {
     const allRels = [...indexer.docs.keys()];
-    const due = review.getDueNotes(allRels);
-    const stats = review.getStats(allRels);
+    // 根据 reviewDirs 配置过滤笔记
+    const reviewDirs = config.reviewDirs || [];
+    let filteredRels = allRels;
+    if (reviewDirs.length > 0) {
+      // 如果配置了 reviewDirs，只包含这些目录下的笔记
+      filteredRels = allRels.filter(rel => {
+        return reviewDirs.some(dir => rel.startsWith(dir + '/') || rel === dir);
+      });
+    }
+    const due = review.getDueNotes(filteredRels);
+    const stats = review.getStats(filteredRels);
     const items = due.map((d) => {
       const doc = indexer.get(d.relPath);
       return { relPath: d.relPath, title: doc?.title || d.relPath, tags: doc?.tags || [], isNew: d.isNew, isDue: d.isDue, nextReview: d.state.nextReview, interval: d.state.interval };
@@ -619,6 +642,52 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const quality = Math.max(0, Math.min(5, parseInt(body.quality) || 3));
     const state = review.markReviewed(notesApi.toPosix(body.rel), quality);
     return sendJson(res, 200, { ok: true, state });
+  }
+
+  // v1.4: 加入复习计划
+  if (pathname === '/api/review/enroll' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少 rel');
+    const rel = notesApi.toPosix(body.rel);
+    const state = review.enrollNote(rel);
+    return sendJson(res, 200, { ok: true, state });
+  }
+
+  // v1.4: 移出复习计划
+  if (pathname === '/api/review/unenroll' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少 rel');
+    const rel = notesApi.toPosix(body.rel);
+    const state = review.unenrollNote(rel);
+    return sendJson(res, 200, { ok: true, state });
+  }
+
+  // v1.4: 检查笔记是否在复习计划中
+  if (pathname === '/api/review/status' && req.method === 'GET') {
+    const rel = url.searchParams.get('rel');
+    if (!rel) throw new Error('缺少 rel 参数');
+    const enrolled = review.isEnrolled(notesApi.toPosix(rel));
+    return sendJson(res, 200, { ok: true, enrolled });
+  }
+
+  // v1.4: 获取复习目录配置
+  if (pathname === '/api/review/config' && req.method === 'GET') {
+    const reviewDirs = config.reviewDirs || [];
+    return sendJson(res, 200, { ok: true, reviewDirs });
+  }
+
+  // v1.4: 保存复习目录配置
+  if (pathname === '/api/review/config' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (body.reviewDirs && Array.isArray(body.reviewDirs)) {
+      // 验证所有目录存在
+      for (const d of body.reviewDirs) {
+        if (d && !fs.existsSync(d)) throw new Error(`目录不存在: ${d}`);
+      }
+      config.reviewDirs = body.reviewDirs.filter(Boolean);
+      saveConfig({ reviewDirs: config.reviewDirs });
+    }
+    return sendJson(res, 200, { ok: true, reviewDirs: config.reviewDirs });
   }
 
   return null;

@@ -1,5 +1,5 @@
 {
-  "notesDir": "/Users/shanengzhi/Library/CloudStorage/飞牛同步-NAS_SYNC",
+  "notesDir": "/Users/shanengzhi/Library/CloudStorage/飞牛同步-NAS_SYNC/开发文档",
   "port": 8571,
   "host": "127.0.0.1",
   "deepseek": {
@@ -22,5 +22,16 @@
       ".Trash",
       "_attachments"
     ]
-  }
+  },
+  "ai": {
+    "provider": "deepseek",
+    "apiKey": "",
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "timeoutMs": 120000
+  },
+  "notesDirs": [
+    "/Users/shanengzhi/Library/CloudStorage/飞牛同步-NAS_SYNC/开发文档"
+  ],
+  "reviewDirs": []
 }

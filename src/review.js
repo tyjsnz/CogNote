@@ -51,7 +51,36 @@ class ReviewManager {
       nextReview: 0,
       lastReview: 0,
       reviewCount: 0,
+      enrolled: false,
     };
+  }
+
+  // 检查笔记是否在复习计划中
+  isEnrolled(relPath) {
+    const state = this.getNoteState(relPath);
+    return state.enrolled === true;
+  }
+
+  // 将笔记加入复习计划
+  enrollNote(relPath) {
+    const state = this.getNoteState(relPath);
+    this.data.notes[relPath] = {
+      ...state,
+      enrolled: true,
+    };
+    this._save();
+    return this.data.notes[relPath];
+  }
+
+  // 将笔记移出复习计划
+  unenrollNote(relPath) {
+    const state = this.getNoteState(relPath);
+    this.data.notes[relPath] = {
+      ...state,
+      enrolled: false,
+    };
+    this._save();
+    return this.data.notes[relPath];
   }
 
   // 标记笔记已复习（quality: 0-5）
@@ -77,6 +106,9 @@ class ReviewManager {
     const due = [];
     const newNotes = [];
     for (const relPath of allRelPaths) {
+      // 只处理已加入复习计划的笔记
+      if (!this.isEnrolled(relPath)) continue;
+      
       const state = this.getNoteState(relPath);
       if (state.repetition === 0) {
         // 从未复习过的新笔记
@@ -99,7 +131,12 @@ class ReviewManager {
     let newCount = 0;
     let reviewedCount = 0;
     let masteredCount = 0;
+    let enrolledCount = 0;
     for (const relPath of allRelPaths) {
+      // 只统计已加入复习计划的笔记
+      if (!this.isEnrolled(relPath)) continue;
+      
+      enrolledCount++;
       const state = this.getNoteState(relPath);
       if (state.repetition === 0) {
         newCount++;
@@ -111,7 +148,7 @@ class ReviewManager {
         reviewedCount++;
       }
     }
-    return { total: allRelPaths.length, newCount, dueCount, reviewedCount, masteredCount };
+    return { total: enrolledCount, newCount, dueCount, reviewedCount, masteredCount };
   }
 }
 
