@@ -1,0 +1,17 @@
+{
+  "notesDirs": ["/path/to/your/notes"],
+  "port": 8570,
+  "host": "127.0.0.1",
+  "ai": {
+    "provider": "deepseek",
+    "apiKey": "",
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "timeoutMs": 120000
+  },
+  "index": {
+    "maxFileSizeKb": 2048,
+    "ignoreDirs": [".git", "node_modules", "img", "images", ".obsidian", ".trash", ".vscode", "_attachments"]
+  },
+  "reviewDirs": []
+}
