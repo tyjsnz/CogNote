@@ -81,7 +81,9 @@
       </div>
     </main>
 
-    <aside id="ai-panel">
+    <aside id="ai-panel" class="ai-collapsed">
+      <button id="btn-ai-toggle" class="ai-toggle-btn" title="展开 / 收起 AI 助手">🤖</button>
+      <div class="ai-panel-content">
       <div class="panel-title">AI 助手</div>
 
       <div class="ai-section">
@@ -135,6 +137,7 @@
         <p class="hint">基于当前笔记（或选中分类全部笔记）多轮提问，回答可复制 / 插入当前笔记 / 生成新笔记。</p>
         <textarea id="ai-ask-question" class="ai-input" rows="2" placeholder="输入问题，点击提问后在新窗口对话"></textarea>
         <button id="btn-ai-ask" class="ai-btn">提问</button>
+      </div>
       </div>
     </aside>
   </div>

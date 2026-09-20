@@ -18,7 +18,7 @@
 
   // ---------- 界面状态持久化（折叠/当前笔记/目录开关）----------
   function loadUI() {
-    const base = { expanded: new Set(), view: null, coverOn: true };
+    const base = { expanded: new Set(), view: null, coverOn: true, aiCollapsed: true };
     try {
       const raw = localStorage.getItem('kb.ui');
       if (raw) {
@@ -27,6 +27,7 @@
           expanded: new Set(Array.isArray(o.expanded) ? o.expanded : []),
           view: o.view || null,
           coverOn: o.coverOn !== false,
+          aiCollapsed: o.aiCollapsed !== false,
         };
       }
     } catch (e) { /* ignore */ }
@@ -41,6 +42,7 @@
         expanded: [...ui.expanded],
         view: ui.view,
         coverOn: ui.coverOn,
+        aiCollapsed: ui.aiCollapsed,
       }));
     } catch (e) { /* ignore */ }
   }
@@ -1848,6 +1850,19 @@ function injectUploadButton() {
     }
   }
 
+  // ---------- AI panel toggle ----------
+  function applyAiPanelState() {
+    const panel = $('#ai-panel');
+    if (!panel) return;
+    panel.classList.toggle('ai-collapsed', ui.aiCollapsed);
+  }
+
+  function toggleAiPanel() {
+    ui.aiCollapsed = !ui.aiCollapsed;
+    saveUI();
+    applyAiPanelState();
+  }
+
   // ---------- bindings ----------
   function bindEvents() {
     $('#search-btn').addEventListener('click', () => {
@@ -1942,6 +1957,7 @@ function injectUploadButton() {
     $('#btn-ai-ask').addEventListener('click', openAiChat);
     $('#btn-ai-chat-send').addEventListener('click', sendAiChat);
     $('#btn-ai-chat-close').addEventListener('click', closeAiChat);
+    $('#btn-ai-toggle').addEventListener('click', toggleAiPanel);
     $('#ai-chat-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -1998,6 +2014,7 @@ function injectUploadButton() {
     bindTreeEvents();
     bindContextMenu();
     applyCover();
+    applyAiPanelState();
     await fetchConfig();
     try {
       await Promise.all([loadTree(), loadTags(), loadStats()]);
