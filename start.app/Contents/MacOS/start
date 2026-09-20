@@ -11,7 +11,7 @@ for i in $(seq 1 10); do
     sleep 1
     URL=$(grep -o 'http://[^ ]*' server.log 2>/dev/null | head -1)
     if [ -n "$URL" ]; then
-        osascript -e "display notification \"知识库服务器已启动\" with title \"Knowledge Server\" subtitle \"✓ $URL\""
+        osascript -e "display notification \"Cognote 服务器已启动\" with title \"Cognote\" subtitle \"✓ $URL\""
         sleep 0.3
         open "$URL"
         exit 0
@@ -21,5 +21,5 @@ for i in $(seq 1 10); do
     fi
 done
 
-osascript -e "display notification \"服务器启动失败，请查看 server.log\" with title \"Knowledge Server\" subtitle \"✗ 错误\""
+osascript -e "display notification \"服务器启动失败，请查看 server.log\" with title \"Cognote\" subtitle \"✗ 错误\""
 exit 1

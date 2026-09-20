@@ -1,7 +1,7 @@
 {
-  "name": "knowledge-base-agent",
+  "name": "cognote",
   "version": "1.0.0",
-  "description": "本地知识库智能体：Markdown 笔记归类、全文检索、DeepSeek AI 扩展与复习",
+  "description": "Cognote — 私有化智能笔记与知识图谱",
   "main": "server.js",
   "bin": "server.js",
   "scripts": {

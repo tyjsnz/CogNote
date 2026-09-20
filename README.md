@@ -1,6 +1,6 @@
-# 知识库智能体
+# Cognote
 
-针对个人 Markdown 知识笔记的**本地 Web 知识库智能体**：自动扫描归类、中文全文检索、AI 知识扩展（DeepSeek）、快速复习自测，并可在 Web 端直接新建/编辑 Markdown 笔记。
+针对个人 Markdown 知识笔记的**本地 Web 智能笔记系统**：自动扫描归类、中文全文检索、AI 知识扩展（DeepSeek）、快速复习自测，并可在 Web 端直接新建/编辑 Markdown 笔记。
 
 ## 痛点与解决
 
@@ -26,7 +26,7 @@
 ## 目录结构
 
 ```
-知识库/
+cognote/
 ├── config.json          # 配置：笔记目录、DeepSeek Key、模型、端口
 ├── server.js            # HTTP 服务入口 + API 路由
 ├── scripts/rescan.js    # 命令行重新扫描

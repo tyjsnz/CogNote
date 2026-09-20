@@ -118,7 +118,7 @@ function rebuildIndexer(incremental = false) {
   if (incremental && fs.existsSync(INDEX_PATH)) {
     const loadResult = indexer.load(INDEX_PATH);
     if (loadResult.ok) {
-      console.log(`[知识库] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
+      console.log(`[Cognote] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
       const info = indexer.incrementalScan();
       search = new SearchEngine(indexer);
       review = new ReviewManager(REVIEW_DIR);
@@ -318,14 +318,14 @@ async function handleApi(pathname, req, res, url) {
     // 支持多目录：为每个目录构建子树，合并为根节点
     const dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
     if (!dirs.length) {
-      return sendJson(res, 200, { tree: { name: '知识库', relPath: '', type: 'dir', children: [], noteCount: 0 } });
+      return sendJson(res, 200, { tree: { name: 'Cognote', relPath: '', type: 'dir', children: [], noteCount: 0 } });
     }
     if (dirs.length === 1) {
       const tree = await notesApi.buildTree(dirs[0], config.index.ignoreDirs);
       return sendJson(res, 200, { tree });
     }
     // 多目录：每个目录作为根节点的子节点，用 _prefix 标记来源
-    const root = { name: '知识库', relPath: '', type: 'dir', children: [], noteCount: 0 };
+    const root = { name: 'Cognote', relPath: '', type: 'dir', children: [], noteCount: 0 };
     for (const dir of dirs) {
       const subtree = await notesApi.buildTree(dir, config.index.ignoreDirs);
       const dirName = path.basename(dir);
@@ -469,7 +469,17 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     }[ext] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': mime });
-    fs.createReadStream(abs).pipe(res);
+    const stream = fs.createReadStream(abs);
+    stream.on('error', (err) => {
+      console.error(`[Cognote] 文件读取失败: ${abs} - ${err.message}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('文件读取失败: ' + err.message);
+      } else {
+        stream.destroy();
+      }
+    });
+    stream.pipe(res);
     return;
   }
 
@@ -569,7 +579,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   // v1.2: 批量归类分析
   if (pathname === '/api/batch-classify' && req.method === 'POST') {
     const docs = [...indexer.docs.values()];
-    if (!docs.length) throw new Error('知识库中没有笔记');
+    if (!docs.length) throw new Error('Cognote 中没有笔记');
     const maxNotes = Math.min(docs.length, body.maxNotes || 100);
     const results = await ai.batchClassify(docs.slice(0, maxNotes));
     // 生成 Markdown 报告
@@ -713,9 +723,9 @@ const server = http.createServer(async (req, res) => {
 // 启动前构建索引（增量模式：加载缓存 + 只更新变更文件）
 try {
   const info = rebuildIndexer(true);
-  console.log(`[知识库] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}`);
+  console.log(`[Cognote] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}`);
 } catch (err) {
-  console.error(`[知识库] 索引构建失败: ${err.message}`);
+  console.error(`[Cognote] 索引构建失败: ${err.message}`);
   process.exit(1);
 }
 
@@ -730,22 +740,22 @@ function tryListen(port, attemptsLeft) {
   const server2 = server.listen(port, config.host);
   server2.once('error', (err) => {
     if (err.code === 'EADDRINUSE' && attemptsLeft > 0) {
-      console.log(`[知识库] 端口 ${port} 被占用，尝试端口 ${port + 1} ...`);
+      console.log(`[Cognote] 端口 ${port} 被占用，尝试端口 ${port + 1} ...`);
       tryListen(port + 1, attemptsLeft - 1);
     } else {
-      console.error(`[知识库] 端口 ${port} 无法监听: ${err.message}`);
+      console.error(`[Cognote] 端口 ${port} 无法监听: ${err.message}`);
       process.exit(1);
     }
   });
   server2.once('listening', () => {
     config.port = server2.address().port;
     const url = `http://${config.host}:${config.port}`;
-    console.log(`[知识库] 已启动: ${url}`);
-    console.log(`[知识库] 笔记目录: ${config.notesDir || '(未设置)'}`);
-    console.log(`[知识库] 配置文件: ${CONFIG_PATH}`);
-    console.log(`[知识库] DeepSeek AI: ${ai.isConfigured() ? '已配置' : '未配置 (编辑 config.json 的 deepseek.apiKey)'}`);
+    console.log(`[Cognote] 已启动: ${url}`);
+    console.log(`[Cognote] 笔记目录: ${config.notesDir || '(未设置)'}`);
+    console.log(`[Cognote] 配置文件: ${CONFIG_PATH}`);
+    console.log(`[Cognote] DeepSeek AI: ${ai.isConfigured() ? '已配置' : '未配置 (编辑 config.json 的 deepseek.apiKey)'}`);
     if (IS_PKG) {
-      console.log('[知识库] 打包模式：正在打开浏览器...');
+      console.log('[Cognote] 打包模式：正在打开浏览器...');
       openBrowser(url);
     }
   });

@@ -25,7 +25,7 @@
   },
   "ai": {
     "provider": "deepseek",
-    "apiKey": "",
+    "apiKey": "sk-b2562041f1ee4e99865b3ef4f5068c30",
     "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-chat",
     "timeoutMs": 120000
