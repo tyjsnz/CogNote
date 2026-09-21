@@ -1736,13 +1736,24 @@ function injectUploadButton() {
     custom: { baseUrl: '', model: '' },
   };
 
+  function getSelectedModel() {
+    const select = $('#cfg-model-select');
+    const input = $('#cfg-model-input');
+    const val = select.value;
+    if (val === '__custom__') return input.value.trim();
+    return val;
+  }
+
   async function loadModelList(provider, baseUrl, apiKey, currentModel) {
-    const select = $('#cfg-model');
+    const select = $('#cfg-model-select');
+    const input = $('#cfg-model-input');
     const isOllama = provider === 'ollama';
     const noKeyNeeded = isOllama || provider === 'custom';
     $('#cfg-apikey-label').style.display = noKeyNeeded ? 'none' : '';
     if (isOllama && !baseUrl) $('#cfg-baseurl').value = 'http://localhost:11434';
     select.innerHTML = '<option value="">加载中...</option>';
+    input.style.display = 'none';
+    input.value = '';
     try {
       const params = new URLSearchParams({ provider, baseUrl: baseUrl || '', apiKey: apiKey || '' });
       const d = await api('/api/ai/models?' + params.toString());
@@ -1754,15 +1765,31 @@ function injectUploadButton() {
           opt.textContent = m.name;
           select.appendChild(opt);
         }
+        // 添加自定义选项
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = '✏️ 手动输入模型名称...';
+        select.appendChild(customOpt);
+        input.style.display = 'none';
       } else {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = d.error ? '获取失败: ' + d.error : '无可用模型（手动输入）';
-        select.appendChild(opt);
+        // 无模型列表，直接显示文本输入
+        select.innerHTML = '<option value="__custom__">✏️ 手动输入模型名称</option>';
+        input.style.display = '';
       }
-      if (currentModel) select.value = currentModel;
+      if (currentModel) {
+        const exists = Array.from(select.options).some((o) => o.value === currentModel);
+        if (exists) {
+          select.value = currentModel;
+        } else {
+          select.value = '__custom__';
+          input.value = currentModel;
+          input.style.display = '';
+        }
+      }
     } catch {
-      select.innerHTML = '<option value="">加载失败</option>';
+      select.innerHTML = '<option value="__custom__">✏️ 手动输入模型名称</option>';
+      input.style.display = '';
+      if (currentModel) input.value = currentModel;
     }
   }
 
@@ -1797,7 +1824,7 @@ function injectUploadButton() {
     const provider = $('#cfg-ai-provider').value;
     const apiKey = $('#cfg-apikey').value.trim();
     const baseUrl = $('#cfg-baseurl').value.trim();
-    const model = $('#cfg-model').value.trim();
+    const model = getSelectedModel();
     const defaults = providerDefaults[provider] || providerDefaults.deepseek;
     const aiConfig = {
       provider,
@@ -2010,9 +2037,14 @@ function injectUploadButton() {
       $('#cfg-baseurl').value = defaults.baseUrl || '';
       loadModelList(provider, defaults.baseUrl || '', '', defaults.model || '');
     });
+    $('#cfg-model-select').addEventListener('change', () => {
+      const input = $('#cfg-model-input');
+      input.style.display = $('#cfg-model-select').value === '__custom__' ? '' : 'none';
+      if ($('#cfg-model-select').value === '__custom__') input.focus();
+    });
     $('#btn-refresh-models').addEventListener('click', () => {
       const provider = $('#cfg-ai-provider').value;
-      loadModelList(provider, $('#cfg-baseurl').value, $('#cfg-apikey').value, $('#cfg-model').value);
+      loadModelList(provider, $('#cfg-baseurl').value, $('#cfg-apikey').value, getSelectedModel());
     });
     // v1.3: 双链图
     $('#btn-show-links').addEventListener('click', openLinkGraph);
