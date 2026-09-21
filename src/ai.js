@@ -7,29 +7,60 @@ class AIError extends Error {
 
 class DeepSeekAI {
   constructor(config) {
+    this.provider = (config.provider || 'deepseek').trim();
     this.apiKey = (config.apiKey || '').trim();
-    this.baseUrl = (config.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
-    this.model = config.model || 'deepseek-chat';
+    this.baseUrl = (config.baseUrl || this._defaultBaseUrl()).replace(/\/+$/, '');
+    this.model = config.model || this._defaultModel();
     this.timeoutMs = config.timeoutMs || 120000;
   }
 
+  _defaultBaseUrl() {
+    const defaults = {
+      deepseek: 'https://api.deepseek.com',
+      openai: 'https://api.openai.com',
+      claude: 'https://api.anthropic.com',
+      moonshot: 'https://api.moonshot.cn',
+      zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+      qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ollama: 'http://localhost:11434',
+      custom: '',
+    };
+    return defaults[this.provider] || 'https://api.deepseek.com';
+  }
+
+  _defaultModel() {
+    const defaults = {
+      deepseek: 'deepseek-chat',
+      openai: 'gpt-4o',
+      claude: 'claude-sonnet-4-20250514',
+      moonshot: 'moonshot-v1-8k',
+      zhipu: 'glm-4-flash',
+      qwen: 'qwen-plus',
+      ollama: 'llama3',
+      custom: '',
+    };
+    return defaults[this.provider] || 'deepseek-chat';
+  }
+
   isConfigured() {
+    if (this.provider === 'ollama') return true;
     return Boolean(this.apiKey);
   }
 
   async chat(messages, { temperature = 0.7, maxTokens = 4096, json = false } = {}) {
     if (!this.isConfigured()) {
-      throw new AIError('未配置 DeepSeek API Key，请在 config.json 的 deepseek.apiKey 中填写后再使用 AI 功能。', 401);
+      throw new AIError('未配置 AI 服务商的 API Key，请在设置中填写后再使用 AI 功能。', 401);
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (this.provider !== 'ollama' && this.apiKey) {
+        headers.Authorization = `Bearer ${this.apiKey}`;
+      }
       const resp = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
           model: this.model,
           messages,
@@ -41,15 +72,15 @@ class DeepSeekAI {
       });
       const raw = await resp.text();
       if (!resp.ok) {
-        throw new AIError(`DeepSeek API 错误(${resp.status}): ${raw.slice(0, 300)}`, resp.status);
+        throw new AIError(`AI API 错误(${resp.status}): ${raw.slice(0, 300)}`, resp.status);
       }
       const data = JSON.parse(raw);
       const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new AIError('DeepSeek 返回内容为空', resp.status);
+      if (!content) throw new AIError('AI 返回内容为空', resp.status);
       return content.trim();
     } catch (err) {
       if (err instanceof AIError) throw err;
-      if (err.name === 'AbortError') throw new AIError('DeepSeek 请求超时');
+      if (err.name === 'AbortError') throw new AIError('AI 请求超时');
       throw new AIError(`请求失败: ${err.message}`);
     } finally {
       clearTimeout(timer);
@@ -140,7 +171,6 @@ class DeepSeekAI {
     return this.chat(messages, { temperature: 0.3 });
   }
 
-  // v1.2: 批量归类分析——分析全库笔记，生成分类调整建议报告
   async batchClassify(docs, { batchSize = 20 } = {}) {
     const summaries = docs.map((d) => ({
       relPath: d.relPath,

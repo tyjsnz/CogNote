@@ -1,5 +1,34 @@
 # 开发日志
 
+## 2026-09-21
+
+### 新增：Ollama 本地模型支持
+- AI 服务商新增「Ollama (本地)」选项，支持连接本地 Ollama 服务
+- 选择 Ollama 时自动隐藏 API Key 输入框（本地模型无需认证）
+- 默认 Base URL 为 `http://localhost:11434`
+
+### 新增：AI 模型自动加载
+- 设置页面模型选择由文本输入改为下拉选择框
+- 切换 AI 服务商时自动从服务端获取可用模型列表
+- Ollama 通过 `/api/tags` 获取本地已安装模型
+- 其他服务商通过 `/v1/models` 接口获取模型列表
+- 新增 🔄 刷新按钮，支持手动刷新模型列表
+- 新增后端 API：`GET /api/ai/models?provider=&baseUrl=&apiKey=`
+
+### 重构：AI 服务商统一配置
+- `DeepSeekAI` 类新增 `provider` 字段，统一处理各服务商差异
+- Ollama 不需要 API Key，聊天时不发送 Authorization 头
+- 各服务商默认 Base URL 和模型集中管理（`AI_PROVIDER_DEFAULTS`）
+
+### 项目开源准备
+- 新增 MIT LICENSE
+- 新增 `config.example.json` 配置模板
+- 修正 `.gitignore`：移除 `/public`，添加 `public/vendor/`、`dist/`
+- 重写 `README.md`：添加安装说明、badge
+- 从版本控制移除 `config.json`（含 API Key）
+- 移除 `dist/` 构建产物
+- 项目更名：知识库智能体 → Cognote
+
 ## 2026-09-06
 
 ### 新增：目录树显示常见文件类型（图片/Office/文本）

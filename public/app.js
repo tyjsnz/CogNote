@@ -1725,6 +1725,47 @@ function injectUploadButton() {
   }
 
   // ---------- settings ----------
+  const providerDefaults = {
+    deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+    openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
+    claude: { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+    moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
+    zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+    qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+    ollama: { baseUrl: 'http://localhost:11434', model: 'llama3' },
+    custom: { baseUrl: '', model: '' },
+  };
+
+  async function loadModelList(provider, baseUrl, apiKey, currentModel) {
+    const select = $('#cfg-model');
+    const isOllama = provider === 'ollama';
+    const noKeyNeeded = isOllama || provider === 'custom';
+    $('#cfg-apikey-label').style.display = noKeyNeeded ? 'none' : '';
+    if (isOllama && !baseUrl) $('#cfg-baseurl').value = 'http://localhost:11434';
+    select.innerHTML = '<option value="">加载中...</option>';
+    try {
+      const params = new URLSearchParams({ provider, baseUrl: baseUrl || '', apiKey: apiKey || '' });
+      const d = await api('/api/ai/models?' + params.toString());
+      select.innerHTML = '';
+      if (d.models && d.models.length) {
+        for (const m of d.models) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name;
+          select.appendChild(opt);
+        }
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = d.error ? '获取失败: ' + d.error : '无可用模型（手动输入）';
+        select.appendChild(opt);
+      }
+      if (currentModel) select.value = currentModel;
+    } catch {
+      select.innerHTML = '<option value="">加载失败</option>';
+    }
+  }
+
   function openSettings() {
     const dirs = state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []);
     $('#cfg-notesdirs').value = dirs.join('\n');
@@ -1738,8 +1779,8 @@ function injectUploadButton() {
     const baseurl = state.config.ai?.baseUrl || '';
     $('#cfg-baseurl').value = baseurl;
     const model = state.config.ai?.model || state.config.deepseek?.model || '';
-    $('#cfg-model').value = model;
     $('#dialog-settings').classList.remove('hidden');
+    loadModelList(provider, baseurl, '', model);
   }
 
   async function saveSettings() {
@@ -1757,15 +1798,6 @@ function injectUploadButton() {
     const apiKey = $('#cfg-apikey').value.trim();
     const baseUrl = $('#cfg-baseurl').value.trim();
     const model = $('#cfg-model').value.trim();
-    const providerDefaults = {
-      deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-      openai: { baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
-      claude: { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
-      moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
-      zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/4', model: 'glm-4-flash' },
-      qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-      custom: { baseUrl: '', model: '' },
-    };
     const defaults = providerDefaults[provider] || providerDefaults.deepseek;
     const aiConfig = {
       provider,
@@ -1971,6 +2003,17 @@ function injectUploadButton() {
     });
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
+    // AI 服务商切换 & 刷新模型列表
+    $('#cfg-ai-provider').addEventListener('change', () => {
+      const provider = $('#cfg-ai-provider').value;
+      const defaults = providerDefaults[provider] || {};
+      $('#cfg-baseurl').value = defaults.baseUrl || '';
+      loadModelList(provider, defaults.baseUrl || '', '', defaults.model || '');
+    });
+    $('#btn-refresh-models').addEventListener('click', () => {
+      const provider = $('#cfg-ai-provider').value;
+      loadModelList(provider, $('#cfg-baseurl').value, $('#cfg-apikey').value, $('#cfg-model').value);
+    });
     // v1.3: 双链图
     $('#btn-show-links').addEventListener('click', openLinkGraph);
     $('#btn-links-close').addEventListener('click', () => $('#dialog-links').classList.add('hidden'));

@@ -177,17 +177,23 @@
           <option value="moonshot">Moonshot (Kimi)</option>
           <option value="zhipu">智谱 (GLM)</option>
           <option value="qwen">通义千问 (Qwen)</option>
+          <option value="ollama">Ollama (本地)</option>
           <option value="custom">自定义 (OpenAI 兼容)</option>
         </select>
       </label>
-      <label>API Key
+      <label id="cfg-apikey-label">API Key
         <input id="cfg-apikey" type="password" placeholder="sk-...">
       </label>
       <label>Base URL
         <input id="cfg-baseurl" type="text" placeholder="留空使用默认地址">
       </label>
       <label>模型
-        <input id="cfg-model" type="text" placeholder="留空使用默认模型">
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <select id="cfg-model" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+            <option value="">加载中...</option>
+          </select>
+          <button id="btn-refresh-models" type="button" title="刷新模型列表" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);cursor:pointer;font-size:13px;">🔄</button>
+        </div>
       </label>
       <p class="hint">配置保存后自动重新扫描索引。API Key 不修改可留空。</p>
       <div class="modal-foot">

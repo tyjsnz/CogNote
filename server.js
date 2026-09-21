@@ -40,6 +40,7 @@ const AI_PROVIDER_DEFAULTS = {
   moonshot: { baseUrl: 'https://api.moonshot.cn', model: 'moonshot-v1-8k' },
   zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
   qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  ollama: { baseUrl: 'http://localhost:11434', model: 'llama3' },
   custom: { baseUrl: '', model: '' },
 };
 
@@ -258,6 +259,39 @@ function ensureDoc(rel) {
 async function handleApi(pathname, req, res, url) {
   if (pathname === '/api/config' && req.method === 'GET') {
     return sendJson(res, 200, publicConfig());
+  }
+
+  // 获取 AI 服务商可用模型列表
+  if (pathname === '/api/ai/models' && req.method === 'GET') {
+    const provider = (url.searchParams.get('provider') || config.ai?.provider || 'deepseek').trim();
+    const baseUrl = url.searchParams.get('baseUrl') || config.ai?.baseUrl || AI_PROVIDER_DEFAULTS[provider]?.baseUrl || '';
+    const apiKey = url.searchParams.get('apiKey') || config.ai?.apiKey || '';
+    if (!baseUrl) return sendJson(res, 200, { models: [] });
+    try {
+      let models = [];
+      if (provider === 'ollama') {
+        // Ollama: GET /api/tags
+        const ollamaUrl = baseUrl.replace(/\/+$/, '') + '/api/tags';
+        const resp = await fetch(ollamaUrl, { signal: AbortSignal.timeout(8000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          models = (data.models || []).map((m) => ({ id: m.name, name: m.name }));
+        }
+      } else {
+        // OpenAI 兼容: GET /v1/models
+        const headers = {};
+        if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+        const modelsUrl = baseUrl.replace(/\/+$/, '') + '/v1/models';
+        const resp = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(8000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          models = (data.data || []).map((m) => ({ id: m.id, name: m.id }));
+        }
+      }
+      return sendJson(res, 200, { models });
+    } catch (err) {
+      return sendJson(res, 200, { models: [], error: err.message });
+    }
   }
 
   if (pathname === '/api/config' && req.method === 'POST') {
