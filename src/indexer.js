@@ -4,6 +4,9 @@ const path = require('node:path');
 const { tokenCountMap } = require('./tokenize');
 
 const MD_RE = /\.md$/i;
+// 支持索引的代码文件类型
+const CODE_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i;
+const ALL_SUPPORTED_RE = /\.(md|pdf|txt|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?|js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|gitignore|dockerignore|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i;
 
 function parseFrontmatter(content) {
   const tags = [];
@@ -109,10 +112,9 @@ class Indexer {
         if (e.isDirectory()) {
           if (this.isIgnoredDir(e.name)) continue;
           stack.push(full);
-        } else if (e.isFile() && MD_RE.test(e.name)) {
+        } else if (e.isFile() && ALL_SUPPORTED_RE.test(e.name)) {
           out.push(full);
         } else if (e.isSymbolicLink()) {
-          // 同步盘（fnos_sync_data 等）中的文件可能是 reparse point / 符号链接
           let st;
           try {
             st = fs.statSync(full);
@@ -127,10 +129,10 @@ class Indexer {
             } catch {
               real = full;
             }
-            if (visited.has(real)) continue; // 防止符号链接目录形成环
+            if (visited.has(real)) continue;
             visited.add(real);
             stack.push(full);
-          } else if (st.isFile() && MD_RE.test(e.name)) {
+          } else if (st.isFile() && ALL_SUPPORTED_RE.test(e.name)) {
             out.push(full);
           }
         }
@@ -148,10 +150,29 @@ class Indexer {
       this.errors.push(`${relPath}: ${err.message}`);
       return null;
     }
-    const { tags, body } = parseFrontmatter(content);
-    const title = extractTitle(body, relPath);
-    const headings = buildHeadings(body);
-    const links = extractInternalLinks(body, relPath);
+    const isMd = MD_RE.test(absPath);
+    const isCode = CODE_RE.test(absPath);
+    let tags = [];
+    let body = content;
+    let title = '';
+    let headings = [];
+    let links = [];
+    if (isMd) {
+      const fm = parseFrontmatter(content);
+      tags = fm.tags;
+      body = fm.body;
+      title = extractTitle(body, relPath);
+      headings = buildHeadings(body);
+      links = extractInternalLinks(body, relPath);
+    } else if (isCode) {
+      // 代码文件：从文件名提取标题，从内容中提取注释作为摘要
+      title = path.basename(relPath).replace(/\.[^.]+$/, '');
+      // 尝试提取文件顶部注释作为摘要
+      const commentMatch = content.match(/^(?:\/\/|#|\/\*|\*|--;?|""")\s*(.+)/m);
+      if (commentMatch) body = commentMatch[1].trim() + '\n' + content;
+    } else {
+      title = path.basename(relPath).replace(/\.[^.]+$/, '');
+    }
     const st = fs.statSync(absPath);
     return {
       relPath,

@@ -697,6 +697,46 @@
       syncSelection();
       return;
     }
+    // 代码文件
+    if (/\.(js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i.test(treeRel)) {
+      try {
+        const r = await fetch(fileUrl);
+        const text = await r.text();
+        const ext = treeRel.split('.').pop().toLowerCase();
+        const langMap = { js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', h: 'c', hpp: 'cpp', rb: 'ruby', ex: 'elixir', exs: 'elixir', hs: 'haskell', clj: 'clojure', gql: 'graphql', tf: 'hcl', hcl: 'hcl', makefile: 'makefile', mk: 'makefile' };
+        const lang = langMap[ext] || ext;
+        let highlighted = esc(text);
+        if (typeof hljs !== 'undefined') {
+          try {
+            if (hljs.getLanguage(lang)) {
+              highlighted = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+            } else {
+              highlighted = hljs.highlightAuto(text).value;
+            }
+          } catch {}
+        }
+        const lines = highlighted.split('\n');
+        const lineNumbers = lines.map((_, i) => '<span class="code-line-num">' + (i + 1) + '</span>').join('\n');
+        const codeContent = lines.join('\n');
+        $('#note-body').innerHTML =
+          '<div class="code-viewer">' +
+          '<div class="code-header">' +
+          '<span class="code-filename">' + esc(treeRel.split('/').pop()) + '</span>' +
+          '<span class="code-lang">' + lang.toUpperCase() + '</span>' +
+          '</div>' +
+          '<div class="code-body">' +
+          '<pre class="code-lines"><code>' + lineNumbers + '</code></pre>' +
+          '<pre class="code-content"><code class="hljs language-' + lang + '">' + codeContent + '</code></pre>' +
+          '</div></div>';
+      } catch (e) {
+        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+      }
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
     // Office 文档等其它文件：提供下载链接
     if (!/\.md$/i.test(treeRel)) {
       $('#note-body').innerHTML =

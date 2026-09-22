@@ -2,6 +2,15 @@
 
 ## 2026-09-21
 
+### 新增：代码文件扫描与显示支持
+- 支持 50+ 种代码文件类型的扫描、索引和显示
+- 代码文件类型：JavaScript/TypeScript、Python、C/C++、Java、Go、Rust、Shell、Ruby、PHP、Swift、Kotlin、Scala、Lua、R、Perl、Haskell、Clojure、Elixir 等
+- 配置文件类型：JSON、YAML/TOML、XML、INI/CFG、.env、Docker、Terraform 等
+- 前端文件类型：HTML、CSS/SCSS/Less、Vue、Svelte、GraphQL 等
+- 代码文件显示：行号、语法高亮（基于 highlight.js）、文件名和语言标识
+- 代码文件标题自动从文件名提取（去除扩展名）
+- 代码文件内容可被全文检索索引
+
 ### 新增：Ollama 本地模型支持
 - AI 服务商新增「Ollama (本地)」选项，支持连接本地 Ollama 服务
 - 选择 Ollama 时自动隐藏 API Key 输入框（本地模型无需认证）

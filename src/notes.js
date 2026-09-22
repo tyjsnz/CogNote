@@ -3,7 +3,7 @@ const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 
 // 支持在目录树中显示和打开的常见文件类型
-const COMMON_FILES_RE = /\.(md|pdf|txt|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?)$/i;
+const COMMON_FILES_RE = /\.(md|pdf|txt|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?|js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|gitignore|dockerignore|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i;
 
 function safeResolve(baseDir, relPath) {
   const base = path.resolve(baseDir);

@@ -245,6 +245,81 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .markdown-body .math-inline { white-space: nowrap; }
 .markdown-body .math-fallback { color: #d63031; background: none; }
 
+/* Code viewer */
+.code-viewer {
+  background: #f6f8fa;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 0 auto;
+}
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: #e8eaed;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.code-filename {
+  font-weight: 600;
+  color: var(--text);
+}
+.code-lang {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 8px;
+  background: var(--panel);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.code-body {
+  display: flex;
+  overflow-x: auto;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.code-lines {
+  margin: 0;
+  padding: 12px 0;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+  border-right: 1px solid var(--border);
+  background: #f0f2f5;
+  min-width: 48px;
+  flex-shrink: 0;
+}
+.code-lines code {
+  display: block;
+  padding: 0 12px;
+}
+.code-line-num {
+  display: block;
+  text-align: right;
+  padding-right: 8px;
+}
+.code-content {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+.code-content code {
+  display: block;
+  white-space: pre;
+}
+.code-content pre {
+  margin: 0;
+  background: none !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
 /* PDF viewer */
 .pdf-viewer {
   width: 100%;
