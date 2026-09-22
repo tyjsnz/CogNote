@@ -1072,10 +1072,14 @@
         const tiptapCore = await import('@tiptap/core');
         const tiptapKit = await import('@tiptap/starter-kit');
         const tiptapMd = await import('tiptap-markdown');
+        const tiptapTaskList = await import('@tiptap/extension-task-list');
+        const tiptapTaskItem = await import('@tiptap/extension-task-item');
 
         const Editor = tiptapCore.Editor;
         const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
         const Markdown = tiptapMd.Markdown || tiptapMd.default;
+        const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
+        const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
         if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
@@ -1098,6 +1102,8 @@
                 transformPastedText: true,
                 transformCopiedText: true,
               }),
+              TaskList,
+              TaskItem.configure({ nested: true }),
             ],
             content: markdown || '',
             editorProps: {
@@ -1111,6 +1117,74 @@
         }
 
         await createEditor('');
+
+        function wireToolbar() {
+          const bar = document.getElementById('editor-format-bar');
+          if (!bar || bar._wired) return;
+          bar._wired = true;
+          bar.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const ed = editorRef.current;
+            if (!ed) return;
+            const cmd = btn.dataset.cmd;
+            const level = parseInt(btn.dataset.level);
+            const chain = ed.chain().focus();
+            switch (cmd) {
+              case 'toggleBold': chain.toggleBold().run(); break;
+              case 'toggleItalic': chain.toggleItalic().run(); break;
+              case 'toggleStrike': chain.toggleStrike().run(); break;
+              case 'toggleCode': chain.toggleCode().run(); break;
+              case 'setHeading': chain.toggleHeading({ level }).run(); break;
+              case 'setParagraph': chain.setParagraph().run(); break;
+              case 'toggleBulletList': chain.toggleBulletList().run(); break;
+              case 'toggleOrderedList': chain.toggleOrderedList().run(); break;
+              case 'toggleTaskList': chain.toggleTaskList().run(); break;
+              case 'toggleBlockquote': chain.toggleBlockquote().run(); break;
+              case 'setCodeBlock': chain.toggleCodeBlock().run(); break;
+              case 'setHorizontalRule': chain.setHorizontalRule().run(); break;
+              case 'setLink': {
+                const url = prompt('输入链接地址：', 'https://');
+                if (url) chain.setLink({ href: url }).run();
+                break;
+              }
+              case 'setImage': {
+                const src = prompt('输入图片地址：', 'https://');
+                if (src) chain.setImage({ src }).run();
+                break;
+              }
+              case 'undo': chain.undo().run(); break;
+              case 'redo': chain.redo().run(); break;
+            }
+          });
+          function updateActiveStates() {
+            const ed = editorRef.current;
+            if (!ed) return;
+            bar.querySelectorAll('button[data-cmd]').forEach(btn => {
+              const cmd = btn.dataset.cmd;
+              let isActive = false;
+              switch (cmd) {
+                case 'toggleBold': isActive = ed.isActive('bold'); break;
+                case 'toggleItalic': isActive = ed.isActive('italic'); break;
+                case 'toggleStrike': isActive = ed.isActive('strike'); break;
+                case 'toggleCode': isActive = ed.isActive('code'); break;
+                case 'setHeading': isActive = ed.isActive('heading', { level: parseInt(btn.dataset.level) }); break;
+                case 'setParagraph': isActive = ed.isActive('paragraph'); break;
+                case 'toggleBulletList': isActive = ed.isActive('bulletList'); break;
+                case 'toggleOrderedList': isActive = ed.isActive('orderedList'); break;
+                case 'toggleTaskList': isActive = ed.isActive('taskList'); break;
+                case 'toggleBlockquote': isActive = ed.isActive('blockquote'); break;
+                case 'setCodeBlock': isActive = ed.isActive('codeBlock'); break;
+              }
+              btn.classList.toggle('active', isActive);
+            });
+          }
+          const ed2 = editorRef.current;
+          if (!ed2) return;
+          ed2.on('selectionUpdate', updateActiveStates);
+          ed2.on('transaction', updateActiveStates);
+        }
+        wireToolbar();
 
         vditor = {
           _editor: null,

@@ -11,6 +11,8 @@
     "imports": {
       "@tiptap/core": "https://esm.sh/@tiptap/core@2",
       "@tiptap/starter-kit": "https://esm.sh/@tiptap/starter-kit@2",
+      "@tiptap/extension-task-list": "https://esm.sh/@tiptap/extension-task-list@2",
+      "@tiptap/extension-task-item": "https://esm.sh/@tiptap/extension-task-item@2",
       "tiptap-markdown": "https://esm.sh/tiptap-markdown@0.8"
     }
   }
@@ -83,6 +85,31 @@
         </div>
         <input id="edit-title" type="text" placeholder="笔记标题（首行 # 标题）">
         <input id="edit-tags" type="text" placeholder="标签，用逗号分隔（写入 frontmatter）">
+        <div id="editor-format-bar">
+          <button data-cmd="toggleBold" title="加粗 (Ctrl+B)"><b>B</b></button>
+          <button data-cmd="toggleItalic" title="斜体 (Ctrl+I)"><i>I</i></button>
+          <button data-cmd="toggleStrike" title="删除线"><s>S</s></button>
+          <button data-cmd="toggleCode" title="行内代码">{ }</button>
+          <span class="format-sep"></span>
+          <button data-cmd="setHeading" data-level="1" title="标题 1">H1</button>
+          <button data-cmd="setHeading" data-level="2" title="标题 2">H2</button>
+          <button data-cmd="setHeading" data-level="3" title="标题 3">H3</button>
+          <button data-cmd="setParagraph" title="正文">P</button>
+          <span class="format-sep"></span>
+          <button data-cmd="toggleBulletList" title="无序列表">• 列表</button>
+          <button data-cmd="toggleOrderedList" title="有序列表">1. 列表</button>
+          <button data-cmd="toggleTaskList" title="任务列表">☑ 任务</button>
+          <span class="format-sep"></span>
+          <button data-cmd="toggleBlockquote" title="引用">❝</button>
+          <button data-cmd="setCodeBlock" title="代码块">&lt;/&gt;</button>
+          <button data-cmd="setHorizontalRule" title="分割线">—</button>
+          <span class="format-sep"></span>
+          <button data-cmd="setLink" title="链接">🔗</button>
+          <button data-cmd="setImage" title="图片">🖼</button>
+          <span class="format-sep"></span>
+          <button data-cmd="undo" title="撤销 (Ctrl+Z)">↩</button>
+          <button data-cmd="redo" title="重做 (Ctrl+Shift+Z)">↪</button>
+        </div>
         <div id="vditor-wrap"></div>
         <textarea id="md-source" class="hidden" placeholder="Markdown 源码编辑模式" spellcheck="false"></textarea>
         <input type="file" id="file-upload" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.txt,.md,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style="display:none">

@@ -414,7 +414,37 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
 }
 #edit-tags { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
-#vditor-wrap { margin-top: 2px; }
+/* Format toolbar */
+#editor-format-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  border-bottom: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+#editor-format-bar button {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+  min-width: 28px;
+  text-align: center;
+  line-height: 1.4;
+}
+#editor-format-bar button:hover { background: var(--code-bg); border-color: var(--border); }
+#editor-format-bar button.active { background: var(--accent-bg, #e8f0fe); border-color: var(--accent); color: var(--accent); }
+#editor-format-bar .format-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+#vditor-wrap { margin-top: 0; }
 /* Tiptap 编辑器 */
 #vditor-wrap .tiptap-editor {
   background: #fff;
