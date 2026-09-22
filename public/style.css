@@ -245,7 +245,13 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .markdown-body .math-inline { white-space: nowrap; }
 .markdown-body .math-fallback { color: #d63031; background: none; }
 
-/* Code viewer */
+/* Code viewer - 优先级高于 .markdown-body pre */
+.markdown-body .code-viewer,
+.markdown-body .code-viewer pre,
+.markdown-body .code-viewer code {
+  background: #ffffff !important;
+  color: #24292e !important;
+}
 .code-viewer {
   background: #ffffff;
   border: 1px solid var(--border);
@@ -320,12 +326,15 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   display: block;
   white-space: pre;
 }
-.code-content pre {
+.code-content pre,
+.markdown-body .code-body pre,
+.markdown-body .code-lines pre {
   margin: 0;
   background: none !important;
   padding: 0 !important;
   border: none !important;
   border-radius: 0 !important;
+  color: inherit !important;
 }
 /* 代码语法高亮增强 - 让注释、关键字、字符串等更易识别 */
 .hljs-comment, .hljs-quote { color: #6a737d; font-style: italic; }
