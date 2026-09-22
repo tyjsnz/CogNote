@@ -975,15 +975,21 @@
   function ensureMonaco() {
     if (monacoReady && monacoEditor) return Promise.resolve(monacoEditor);
     return new Promise((resolve, reject) => {
-      if (typeof require === 'undefined' || !require.config) {
-        reject(new Error('Monaco Editor loader 未加载'));
-        return;
+      function loadMonacoLoader(cb) {
+        if (typeof window.require !== 'undefined' && window.require.config) { cb(); return; }
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js';
+        s.onload = cb;
+        s.onerror = () => reject(new Error('Monaco loader 加载失败'));
+        document.head.appendChild(s);
       }
-      require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
-      require(['vs/editor/editor.main'], () => {
-        monacoReady = true;
-        resolve();
-      }, reject);
+      loadMonacoLoader(() => {
+        window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+        window.require(['vs/editor/editor.main'], () => {
+          monacoReady = true;
+          resolve();
+        }, reject);
+      });
     });
   }
 
@@ -1110,8 +1116,6 @@
         }, 50);
         setTimeout(() => { clearInterval(check); reject(new Error('Vditor 加载超时')); }, 10000);
       }
-    });
-  }
     });
   }
 
