@@ -1062,41 +1062,56 @@
   function ensureVditor() {
     if (vditor) return Promise.resolve(vditor);
     return new Promise((resolve, reject) => {
-      try {
-        vditor = new Vditor('vditor-wrap', {
-          height: 'auto',
-          minHeight: 460,
-          mode: 'wysiwyg',
-          theme: 'light',
-          lang: 'zh_CN',
-          cdn: '/vendor/vditor',
-          cache: { enable: false },
-          toolbar: [
-            'undo', 'redo', '|',
-            'headings', 'bold', 'italic', 'strike', '|',
-            'list', 'ordered-list', 'check', '|',
-            'quote', 'line', 'code', 'inline-code', '|',
-            'table', 'link', '|',
-            'emoji', '|',
-            'outdent', 'indent', '|',
-            'edit-mode', 'both', 'preview', 'fullscreen', '|',
-            'outline', 'export', 'devtools', 'help',
-          ],
-          preview: {
-            theme: { current: 'light' },
-            hljs: { lineNumber: true, style: 'github', enable: true },
-            markdown: { toc: true, mark: true, footnote: true },
-            math: { engine: 'KaTeX', inlineDigit: true },
-            diagram: true,
-          },
-          after() {
-            setTimeout(injectUploadButton, 0);
-            resolve(vditor);
-          },
-        });
-      } catch (e) {
-        reject(e);
+      function initVditor() {
+        try {
+          vditor = new Vditor('vditor-wrap', {
+            height: 'auto',
+            minHeight: 460,
+            mode: 'wysiwyg',
+            theme: 'light',
+            lang: 'zh_CN',
+            cdn: '/vendor/vditor',
+            cache: { enable: false },
+            toolbar: [
+              'undo', 'redo', '|',
+              'headings', 'bold', 'italic', 'strike', '|',
+              'list', 'ordered-list', 'check', '|',
+              'quote', 'line', 'code', 'inline-code', '|',
+              'table', 'link', '|',
+              'emoji', '|',
+              'outdent', 'indent', '|',
+              'edit-mode', 'both', 'preview', 'fullscreen', '|',
+              'outline', 'export', 'devtools', 'help',
+            ],
+            preview: {
+              theme: { current: 'light' },
+              hljs: { lineNumber: true, style: 'github', enable: true },
+              markdown: { toc: true, mark: true, footnote: true },
+              math: { engine: 'KaTeX', inlineDigit: true },
+              diagram: true,
+            },
+            after() {
+              setTimeout(injectUploadButton, 0);
+              resolve(vditor);
+            },
+          });
+        } catch (e) {
+          reject(e);
+        }
       }
+      if (typeof Vditor !== 'undefined') {
+        initVditor();
+      } else {
+        const check = setInterval(() => {
+          if (typeof Vditor !== 'undefined') {
+            clearInterval(check);
+            initVditor();
+          }
+        }, 50);
+        setTimeout(() => { clearInterval(check); reject(new Error('Vditor 加载超时')); }, 10000);
+      }
+    });
+  }
     });
   }
 
