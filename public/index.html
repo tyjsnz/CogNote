@@ -254,6 +254,17 @@
     <button id="btn-review-dismiss" class="review-score-dismiss">跳过</button>
   </div>
 
+  <div id="code-editor-section" class="hidden" style="max-width:100%;margin:0 auto;">
+    <div class="editor-toolbar">
+      <div class="note-actions">
+        <button id="btn-save-code">💾 保存</button>
+        <button id="btn-cancel-code">取消</button>
+      </div>
+      <div class="editor-mode-label" id="code-editor-lang"></div>
+    </div>
+    <div id="monaco-editor-container"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
   <script src="vendor/vditor/dist/index.min.js"></script>
   <script src="vendor/vditor/dist/js/katex/katex.min.js"></script>
   <script src="vendor/vditor/dist/js/highlight.js/highlight.min.js"></script>

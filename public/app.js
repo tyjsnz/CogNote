@@ -958,6 +958,107 @@
   let vditor = null;
   let editorMode = 'wysiwyg'; // 'wysiwyg' | 'source'
 
+  let monacoEditor = null;
+  let monacoReady = false;
+  const CODE_FILE_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i;
+
+  function isCodeFile(rel) {
+    return CODE_FILE_RE.test(rel);
+  }
+
+  function getLangFromExt(rel) {
+    const ext = rel.split('.').pop().toLowerCase();
+    const map = { js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', py: 'python', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp', java: 'java', go: 'go', rs: 'rust', sh: 'shell', bash: 'shell', zsh: 'shell', json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'ini', xml: 'xml', html: 'html', htm: 'html', css: 'css', scss: 'scss', less: 'less', sql: 'sql', rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin', scala: 'scala', lua: 'lua', r: 'r', pl: 'perl', ex: 'elixir', exs: 'elixir', hs: 'haskell', clj: 'clojure', vue: 'html', svelte: 'html', proto: 'protobuf', graphql: 'graphql', gql: 'graphql', tf: 'hcl', hcl: 'hcl', ini: 'ini', cfg: 'ini', conf: 'ini', properties: 'properties', makefile: 'makefile', mk: 'makefile' };
+    return map[ext] || ext;
+  }
+
+  function ensureMonaco() {
+    if (monacoReady && monacoEditor) return Promise.resolve(monacoEditor);
+    return new Promise((resolve, reject) => {
+      if (typeof require === 'undefined' || !require.config) {
+        reject(new Error('Monaco Editor loader 未加载'));
+        return;
+      }
+      require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+      require(['vs/editor/editor.main'], () => {
+        monacoReady = true;
+        resolve();
+      }, reject);
+    });
+  }
+
+  async function openCodeEditor() {
+    if (!state.currentRel) return toast('请先选择一篇笔记', true);
+    state.editing = true;
+    $('#viewer').classList.add('hidden');
+    $('#search-results').classList.add('hidden');
+    $('#editor').classList.add('hidden');
+    $('#code-editor-section').classList.remove('hidden');
+
+    const lang = getLangFromExt(state.currentRel);
+    $('#code-editor-lang').textContent = lang.toUpperCase();
+
+    try {
+      await ensureMonaco();
+      const d = await api(noteApiUrl('/api/note'));
+      const container = document.getElementById('monaco-editor-container');
+      if (monacoEditor) {
+        monacoEditor.dispose();
+        monacoEditor = null;
+      }
+      monacoEditor = monaco.editor.create(container, {
+        value: d.content,
+        language: lang,
+        theme: 'vs',
+        fontSize: 14,
+        fontFamily: 'Consolas, "SF Mono", "Fira Code", "Courier New", monospace',
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        lineNumbers: 'on',
+        renderLineHighlight: 'all',
+        automaticLayout: true,
+        tabSize: 2,
+        insertSpaces: true,
+        folding: true,
+        bracketPairColorization: { enabled: true },
+        smoothScrolling: true,
+        cursorBlinking: 'smooth',
+        cursorSmoothCaretAnimation: 'on',
+      });
+      monacoEditor.focus();
+    } catch (e) {
+      toast('编辑器加载失败: ' + e.message, true);
+      cancelCodeEdit();
+    }
+  }
+
+  async function saveCodeFile() {
+    if (!state.currentRel || !monacoEditor) return;
+    try {
+      const content = monacoEditor.getValue();
+      await api('/api/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rel: state.currentRel, content }),
+      });
+      toast('已保存: ' + state.currentRel);
+      await openNote(state.currentRel);
+    } catch (e) {
+      toast('保存失败: ' + e.message, true);
+    }
+  }
+
+  function cancelCodeEdit() {
+    state.editing = false;
+    $('#code-editor-section').classList.add('hidden');
+    if (monacoEditor) {
+      monacoEditor.dispose();
+      monacoEditor = null;
+    }
+    if (state.currentRel) openNote(state.currentRel);
+  }
+
   function ensureVditor() {
     if (vditor) return Promise.resolve(vditor);
     return new Promise((resolve, reject) => {
@@ -1045,10 +1146,16 @@ function injectUploadButton() {
       toast('请先选择一篇笔记或分类', true);
       return;
     }
+    // 代码文件使用 Monaco Editor
+    if (state.currentRel && isCodeFile(state.currentRel)) {
+      openCodeEditor();
+      return;
+    }
     state.editing = true;
     $('#viewer').classList.add('hidden');
     $('#search-results').classList.add('hidden');
     $('#editor').classList.remove('hidden');
+    $('#code-editor-section').classList.add('hidden');
 
     // 重置为可视化模式
     editorMode = 'wysiwyg';
@@ -1110,6 +1217,20 @@ function injectUploadButton() {
       newRel = uniqueRel(state.currentDir || '', name);
     }
 
+    // 代码文件直接保存，不处理 frontmatter
+    if (state.currentRel && isCodeFile(state.currentRel)) {
+      const body = editorMode === 'source' ? $('#md-source').value : (vditor ? vditor.getValue() : '');
+      await api('/api/note', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rel: state.currentRel, content: body }),
+      });
+      toast('已保存: ' + state.currentRel);
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      await openNote(state.currentRel);
+      return;
+    }
+
     let content;
     const header = title && !/^\s*#\s+/.test(body) ? '# ' + title + '\n\n' : '';
     if (tags.length) {
@@ -1131,6 +1252,11 @@ function injectUploadButton() {
   function cancelEdit() {
     state.editing = false;
     $('#editor').classList.add('hidden');
+    $('#code-editor-section').classList.add('hidden');
+    if (monacoEditor) {
+      monacoEditor.dispose();
+      monacoEditor = null;
+    }
     if (state.currentRel) {
       openNote(state.currentRel);
     } else if (state.prevRel) {
@@ -1988,6 +2114,8 @@ function injectUploadButton() {
     });
 
     $('#btn-edit').addEventListener('click', openEditor);
+    $('#btn-save-code').addEventListener('click', saveCodeFile);
+    $('#btn-cancel-code').addEventListener('click', cancelCodeEdit);
     $('#btn-new').addEventListener('click', newNote);
     $('#btn-move').addEventListener('click', openMoveDialog);
     $('#btn-delete').addEventListener('click', deleteNote);
