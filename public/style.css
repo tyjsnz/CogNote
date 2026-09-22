@@ -415,30 +415,27 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 }
 #edit-tags { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
 #vditor-wrap { margin-top: 2px; }
-/* Milkdown 编辑器 */
-#vditor-wrap .milkdown {
+/* Tiptap 编辑器 */
+#vditor-wrap .tiptap-editor {
   background: #fff;
-  border-radius: 8px;
   border: 1px solid var(--border);
-  overflow: hidden;
-}
-#vditor-wrap .milkdown .editor {
-  outline: none;
+  border-radius: 8px;
   min-height: 460px;
   padding: 20px 24px;
   font-size: 15px;
   line-height: 1.8;
+  outline: none;
+  cursor: text;
 }
-#vditor-wrap .milkdown .editor:focus { outline: none; }
-#vditor-wrap .milkdown .ProseMirror { outline: none; min-height: 460px; }
-#vditor-wrap .milkdown .ProseMirror p { margin: 0.5em 0; }
-#vditor-wrap .milkdown .ProseMirror h1 { font-size: 1.8em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-#vditor-wrap .milkdown .ProseMirror h2 { font-size: 1.5em; margin: 0.8em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-#vditor-wrap .milkdown .ProseMirror h3 { font-size: 1.25em; margin: 0.6em 0 0.3em; }
-#vditor-wrap .milkdown .ProseMirror h4, #vditor-wrap .milkdown .ProseMirror h5, #vditor-wrap .milkdown .ProseMirror h6 { font-size: 1.1em; margin: 0.5em 0 0.2em; }
-#vditor-wrap .milkdown .ProseMirror ul, #vditor-wrap .milkdown .ProseMirror ol { padding-left: 1.6em; margin: 0.4em 0; }
-#vditor-wrap .milkdown .ProseMirror li { margin: 0.2em 0; }
-#vditor-wrap .milkdown .ProseMirror blockquote {
+#vditor-wrap .tiptap-editor:focus { outline: none; }
+#vditor-wrap .tiptap-editor p { margin: 0.5em 0; }
+#vditor-wrap .tiptap-editor h1 { font-size: 1.8em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+#vditor-wrap .tiptap-editor h2 { font-size: 1.5em; margin: 0.8em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+#vditor-wrap .tiptap-editor h3 { font-size: 1.25em; margin: 0.6em 0 0.3em; }
+#vditor-wrap .tiptap-editor h4, #vditor-wrap .tiptap-editor h5, #vditor-wrap .tiptap-editor h6 { font-size: 1.1em; margin: 0.5em 0 0.2em; }
+#vditor-wrap .tiptap-editor ul, #vditor-wrap .tiptap-editor ol { padding-left: 1.6em; margin: 0.4em 0; }
+#vditor-wrap .tiptap-editor li { margin: 0.2em 0; }
+#vditor-wrap .tiptap-editor blockquote {
   border-left: 4px solid var(--accent);
   margin: 0.6em 0;
   padding: 4px 14px;
@@ -446,7 +443,7 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   background: var(--code-bg);
   border-radius: 0 6px 6px 0;
 }
-#vditor-wrap .milkdown .ProseMirror pre {
+#vditor-wrap .tiptap-editor pre {
   background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -455,46 +452,33 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   font-size: 13px;
   line-height: 1.6;
 }
-#vditor-wrap .milkdown .ProseMirror code {
+#vditor-wrap .tiptap-editor code {
   font-family: Consolas, "SF Mono", monospace;
   background: var(--code-bg);
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 13px;
 }
-#vditor-wrap .milkdown .ProseMirror pre code { background: none; padding: 0; }
-#vditor-wrap .milkdown .ProseMirror table { border-collapse: collapse; margin: 0.6em 0; width: 100%; }
-#vditor-wrap .milkdown .ProseMirror th, #vditor-wrap .milkdown .ProseMirror td { border: 1px solid var(--border); padding: 6px 10px; }
-#vditor-wrap .milkdown .ProseMirror th { background: var(--code-bg); font-weight: 600; }
-#vditor-wrap .milkdown .ProseMirror a { color: var(--accent); }
-#vditor-wrap .milkdown .ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
-#vditor-wrap .milkdown .ProseMirror img { max-width: 100%; border-radius: 6px; }
-#vditor-wrap .milkdown .ProseMirror .math-block { display: block; overflow-x: auto; margin: 0.6em 0; padding: 4px 0; text-align: center; }
-#vditor-wrap .milkdown .ProseMirror .inline-math { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
-#vditor-wrap .milkdown .ProseMirror .footnotes { font-size: 0.9em; color: var(--muted); border-top: 1px solid var(--border); margin-top: 1em; padding-top: 0.6em; }
-#vditor-wrap .milkdown .ProseMirror .has-focus { background: rgba(37, 99, 235, 0.08); border-radius: 2px; }
-/* Milkdown slash dropdown */
-#vditor-wrap .slash-dropdown {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 4px;
+#vditor-wrap .tiptap-editor pre code { background: none; padding: 0; }
+#vditor-wrap .tiptap-editor table { border-collapse: collapse; margin: 0.6em 0; width: 100%; }
+#vditor-wrap .tiptap-editor th, #vditor-wrap .tiptap-editor td { border: 1px solid var(--border); padding: 6px 10px; }
+#vditor-wrap .tiptap-editor th { background: var(--code-bg); font-weight: 600; }
+#vditor-wrap .tiptap-editor a { color: var(--accent); }
+#vditor-wrap .tiptap-editor hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+#vditor-wrap .tiptap-editor img { max-width: 100%; border-radius: 6px; }
+#vditor-wrap .tiptap-editor .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--muted);
+  pointer-events: none;
+  height: 0;
 }
-#vditor-wrap .slash-dropdown .slash-item {
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-#vditor-wrap .slash-dropdown .slash-item:hover,
-#vditor-wrap .slash-dropdown .slash-item.active {
-  background: var(--code-bg);
+#vditor-wrap .tiptap-editor .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--muted);
+  pointer-events: none;
+  height: 0;
 }
 
 /* Markdown 源码编辑器 */
