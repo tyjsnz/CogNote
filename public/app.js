@@ -1069,8 +1069,8 @@
     if (vditor) return Promise.resolve(vditor);
     return new Promise(async (resolve, reject) => {
       try {
-        const { Editor, rootCtx, defaultValueCtx, editorViewCtx, serializerCtx } = await import('@milkdown/core');
-        const { replaceAll } = await import('@milkdown/utils');
+        const { Editor, rootCtx, defaultValueCtx, editorViewCtx } = await import('@milkdown/core');
+        const { replaceAll, getMarkdown, serializerCtx } = await import('@milkdown/utils');
         const { commonmark } = await import('@milkdown/preset-commonmark');
         const { nord } = await import('@milkdown/theme-nord');
         const { history } = await import('@milkdown/plugin-history');
@@ -1079,8 +1079,6 @@
         const { math } = await import('@milkdown/plugin-math');
         const { prism } = await import('@milkdown/plugin-prism');
         const { emoji } = await import('@milkdown/plugin-emoji');
-        const { toc } = await import('@milkdown/plugin-toc');
-        const { blockquoteExpand } = await import('@milkdown/plugin-blockquote-expand');
 
         const MilkdownEditor = await Editor.make()
           .config((ctx) => {
@@ -1095,20 +1093,13 @@
           .config(math)
           .config(prism)
           .config(emoji)
-          .config(toc)
-          .config(blockquoteExpand)
           .create();
 
         vditor = {
           _editor: MilkdownEditor,
           getValue() {
             try {
-              if (MilkdownEditor.getMarkdown) return MilkdownEditor.getMarkdown();
-              return MilkdownEditor.action((ctx) => {
-                const view = ctx.get(editorViewCtx);
-                const serializer = ctx.get(serializerCtx);
-                return serializer(view.state.doc);
-              });
+              return MilkdownEditor.action(getMarkdown());
             } catch { return ''; }
           },
           setValue(markdown) {
