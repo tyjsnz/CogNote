@@ -5,9 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cognote</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="vendor/vditor/dist/index.css">
-  <link rel="stylesheet" href="vendor/vditor/dist/js/katex/katex.min.css">
   <link rel="stylesheet" href="vendor/vditor/dist/js/highlight.js/styles/github.min.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "@milkdown/core": "https://esm.sh/@milkdown/core@7.5.0",
+      "@milkdown/ctx": "https://esm.sh/@milkdown/ctx@7.5.0",
+      "@milkdown/prose": "https://esm.sh/@milkdown/prose@7.5.0",
+      "@milkdown/preset-commonmark": "https://esm.sh/@milkdown/preset-commonmark@7.5.0",
+      "@milkdown/theme-nord": "https://esm.sh/@milkdown/theme-nord@7.5.0",
+      "@milkdown/plugin-history": "https://esm.sh/@milkdown/plugin-history@7.5.0",
+      "@milkdown/plugin-slash": "https://esm.sh/@milkdown/plugin-slash@7.5.0",
+      "@milkdown/plugin-clipboard": "https://esm.sh/@milkdown/plugin-clipboard@7.5.0",
+      "@milkdown/plugin-math": "https://esm.sh/@milkdown/plugin-math@7.5.0",
+      "@milkdown/plugin-prism": "https://esm.sh/@milkdown/plugin-prism@7.5.0",
+      "@milkdown/plugin-emoji": "https://esm.sh/@milkdown/plugin-emoji@7.5.0",
+      "@milkdown/plugin-toc": "https://esm.sh/@milkdown/plugin-toc@7.5.0",
+      "@milkdown/plugin-blockquote-expand": "https://esm.sh/@milkdown/plugin-blockquote-expand@7.5.0",
+      "@milkdown/utils": "https://esm.sh/@milkdown/utils@7.5.0",
+      "katex": "https://esm.sh/katex@0.16.11"
+    }
+  }
+  </script>
 </head>
 <body>
   <header id="topbar">
@@ -265,11 +284,9 @@
     <button id="btn-review-dismiss" class="review-score-dismiss">跳过</button>
   </div>
 
-  <script src="vendor/vditor/dist/index.min.js"></script>
-  <script src="vendor/vditor/dist/js/katex/katex.min.js"></script>
   <script src="vendor/vditor/dist/js/highlight.js/highlight.min.js"></script>
   <script src="vendor/vditor/dist/js/highlight.js/third-languages.js"></script>
   <script src="markdown.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

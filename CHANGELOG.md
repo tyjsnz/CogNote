@@ -16,7 +16,14 @@
 - 支持语法高亮、自动补全、代码折叠、括号匹配、minimap
 - 支持智能缩进、自动格式化、平滑滚动
 - 代码文件保存时保留原始格式，不处理 Markdown frontmatter
-- Markdown 编辑器保持 Vditor（类 Typora 所见即所得模式）
+
+### 替换：Markdown 编辑器 Vditor → Milkdown
+- 全面替换 Vditor 为 Milkdown（基于 ProseMirror 的现代 Markdown 编辑器）
+- 支持 WYSIWYG 所见即所得编辑，体验更接近 Typora
+- 内置工具栏：标题、加粗、斜体、删除线、列表、引用、代码块、表格、链接、Emoji
+- 支持 KaTeX 数学公式、Mermaid 图表、代码语法高亮、目录、脚注
+- Nord 主题，简洁美观
+- 源码模式切换保持可用（通过 textarea 直接编辑 Markdown）
 
 ### 优化：代码显示样式
 - 增强语法高亮：注释斜体灰色、关键字加粗红色、字符串深蓝色、函数紫色

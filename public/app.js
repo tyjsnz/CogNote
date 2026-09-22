@@ -1067,72 +1067,63 @@
 
   function ensureVditor() {
     if (vditor) return Promise.resolve(vditor);
-    return new Promise((resolve, reject) => {
-      function initVditor() {
-        try {
-          vditor = new Vditor('vditor-wrap', {
-            height: 'auto',
-            minHeight: 460,
-            mode: 'wysiwyg',
-            theme: 'light',
-            lang: 'zh_CN',
-            cdn: '/vendor/vditor',
-            cache: { enable: false },
-            toolbar: [
-              'undo', 'redo', '|',
-              'headings', 'bold', 'italic', 'strike', '|',
-              'list', 'ordered-list', 'check', '|',
-              'quote', 'line', 'code', 'inline-code', '|',
-              'table', 'link', '|',
-              'emoji', '|',
-              'outdent', 'indent', '|',
-              'edit-mode', 'both', 'preview', 'fullscreen', '|',
-              'outline', 'export', 'devtools', 'help',
-            ],
-            preview: {
-              theme: { current: 'light' },
-              hljs: { lineNumber: true, style: 'github', enable: true },
-              markdown: { toc: true, mark: true, footnote: true },
-              math: { engine: 'KaTeX', inlineDigit: true },
-              diagram: true,
-            },
-            after() {
-              setTimeout(injectUploadButton, 0);
-              resolve(vditor);
-            },
-          });
-        } catch (e) {
-          reject(e);
-        }
-      }
-      if (typeof Vditor !== 'undefined') {
-        initVditor();
-      } else {
-        const check = setInterval(() => {
-          if (typeof Vditor !== 'undefined') {
-            clearInterval(check);
-            initVditor();
-          }
-        }, 50);
-        setTimeout(() => { clearInterval(check); reject(new Error('Vditor 加载超时')); }, 10000);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const { Editor, rootCtx, defaultValueCtx, editorViewCtx, serializerCtx } = await import('@milkdown/core');
+        const { replaceAll } = await import('@milkdown/utils');
+        const { commonmark } = await import('@milkdown/preset-commonmark');
+        const { nord } = await import('@milkdown/theme-nord');
+        const { history } = await import('@milkdown/plugin-history');
+        const { slash } = await import('@milkdown/plugin-slash');
+        const { clipboard } = await import('@milkdown/plugin-clipboard');
+        const { math } = await import('@milkdown/plugin-math');
+        const { prism } = await import('@milkdown/plugin-prism');
+        const { emoji } = await import('@milkdown/plugin-emoji');
+        const { toc } = await import('@milkdown/plugin-toc');
+        const { blockquoteExpand } = await import('@milkdown/plugin-blockquote-expand');
+
+        const MilkdownEditor = await Editor.make()
+          .config((ctx) => {
+            ctx.set(rootCtx, document.getElementById('vditor-wrap'));
+            ctx.set(defaultValueCtx, '');
+          })
+          .config(nord)
+          .config(commonmark)
+          .config(history)
+          .config(slash)
+          .config(clipboard)
+          .config(math)
+          .config(prism)
+          .config(emoji)
+          .config(toc)
+          .config(blockquoteExpand)
+          .create();
+
+        vditor = {
+          _editor: MilkdownEditor,
+          getValue() {
+            try {
+              if (MilkdownEditor.getMarkdown) return MilkdownEditor.getMarkdown();
+              return MilkdownEditor.action((ctx) => {
+                const view = ctx.get(editorViewCtx);
+                const serializer = ctx.get(serializerCtx);
+                return serializer(view.state.doc);
+              });
+            } catch { return ''; }
+          },
+          setValue(markdown) {
+            MilkdownEditor.action(replaceAll(markdown));
+          },
+          insertValue(markdown) {
+            const current = this.getValue();
+            MilkdownEditor.action(replaceAll(current + markdown));
+          },
+        };
+        resolve(vditor);
+      } catch (e) {
+        reject(e);
       }
     });
-  }
-
-function injectUploadButton() {
-    try {
-      const toolbar = document.querySelector('#vditor-wrap .vditor-toolbar');
-      if (!toolbar) { console.warn('[upload] .vditor-toolbar not found'); return; }
-      if (toolbar.querySelector('.vditor-upload-btn')) return;
-      const btn = document.createElement('button');
-      btn.className = 'vditor-menu vditor-upload-btn';
-      btn.title = '上传附件';
-      btn.addEventListener('click', () => $('#file-upload').click());
-      const fsBtn = toolbar.querySelector('[data-name="fullscreen"]') || toolbar.lastElementChild;
-      if (fsBtn) toolbar.insertBefore(btn, fsBtn);
-      else toolbar.appendChild(btn);
-      console.log('[upload] button injected');
-    } catch (e) { console.error('[upload] inject error:', e); }
   }
 
   function switchEditorMode(mode) {
