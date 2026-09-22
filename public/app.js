@@ -1069,45 +1069,52 @@
     if (vditor) return Promise.resolve(vditor);
     return new Promise(async (resolve, reject) => {
       try {
-        const { Editor, rootCtx, defaultValueCtx, editorViewCtx } = await import('@milkdown/core');
-        const { replaceAll, getMarkdown, serializerCtx } = await import('@milkdown/utils');
+        const milkdown = await import('@milkdown/core');
         const { commonmark } = await import('@milkdown/preset-commonmark');
         const { nord } = await import('@milkdown/theme-nord');
-        const { history } = await import('@milkdown/plugin-history');
-        const { slash } = await import('@milkdown/plugin-slash');
-        const { clipboard } = await import('@milkdown/plugin-clipboard');
-        const { math } = await import('@milkdown/plugin-math');
-        const { prism } = await import('@milkdown/plugin-prism');
-        const { emoji } = await import('@milkdown/plugin-emoji');
 
-        const MilkdownEditor = await Editor.make()
-          .config((ctx) => {
-            ctx.set(rootCtx, document.getElementById('vditor-wrap'));
-            ctx.set(defaultValueCtx, '');
-          })
-          .config(nord)
-          .config(commonmark)
-          .config(history)
-          .config(slash)
-          .config(clipboard)
-          .config(math)
-          .config(prism)
-          .config(emoji)
-          .create();
+        const editorRef = { current: null };
+
+        async function createEditor(markdown) {
+          const el = document.getElementById('vditor-wrap');
+          el.innerHTML = '';
+          const editor = await milkdown.Editor.make()
+            .config((ctx) => {
+              ctx.set(milkdown.rootCtx, el);
+              ctx.set(milkdown.defaultValueCtx, markdown || '');
+            })
+            .config(nord)
+            .config(commonmark)
+            .create();
+          editorRef.current = editor;
+          return editor;
+        }
+
+        await createEditor('');
+
+        function getMarkdown() {
+          const ed = editorRef.current;
+          if (!ed) return '';
+          try {
+            if (typeof ed.getMarkdown === 'function') return ed.getMarkdown();
+          } catch {}
+          try {
+            return ed.action((ctx) => {
+              const view = ctx.get(milkdown.editorViewCtx);
+              const serializer = ctx.get(milkdown.serializerCtx);
+              return serializer(view.state.doc);
+            });
+          } catch {}
+          return '';
+        }
 
         vditor = {
-          _editor: MilkdownEditor,
-          getValue() {
-            try {
-              return MilkdownEditor.action(getMarkdown());
-            } catch { return ''; }
-          },
-          setValue(markdown) {
-            MilkdownEditor.action(replaceAll(markdown));
-          },
+          _editor: null,
+          getValue() { return getMarkdown(); },
+          setValue(markdown) { createEditor(markdown); },
           insertValue(markdown) {
-            const current = this.getValue();
-            MilkdownEditor.action(replaceAll(current + markdown));
+            const el = document.querySelector('#vditor-wrap .ProseMirror');
+            if (el) { el.focus(); document.execCommand('insertText', false, markdown); }
           },
         };
         resolve(vditor);
