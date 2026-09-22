@@ -1069,9 +1069,17 @@
     if (vditor) return Promise.resolve(vditor);
     return new Promise(async (resolve, reject) => {
       try {
-        const { Editor } = await import('@tiptap/core');
-        const { default: StarterKit } = await import('@tiptap/starter-kit');
-        const { default: Markdown } = await import('tiptap-markdown');
+        const tiptapCore = await import('@tiptap/core');
+        const tiptapKit = await import('@tiptap/starter-kit');
+        const tiptapMd = await import('tiptap-markdown');
+
+        const Editor = tiptapCore.Editor;
+        const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
+        const Markdown = tiptapMd.Markdown || tiptapMd.default;
+
+        if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
+        if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
+        if (!Markdown) { reject(new Error('Markdown 未加载: ' + Object.keys(tiptapMd).join(','))); return; }
 
         const editorRef = { current: null };
 
