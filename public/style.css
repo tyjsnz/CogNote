@@ -348,10 +348,18 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
 
-/* Monaco editor container */
+/* Code editor section */
+#code-editor-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+#code-editor-section.hidden { display: none; }
 #monaco-editor-container {
-  width: 100%;
-  min-height: 500px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
