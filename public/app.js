@@ -1144,7 +1144,6 @@
             },
           });
           editorRef.current = editor;
-          vditor._editor = editor;
           return editor;
         }
 
@@ -1242,7 +1241,7 @@
         wireToolbar();
 
         vditor = {
-          _editor: null,
+          _editor: editorRef.current,
           getValue() {
             const ed = editorRef.current;
             if (!ed) return '';
