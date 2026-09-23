@@ -1,5 +1,45 @@
 # 开发日志
 
+## 2026-09-23
+
+### 新增：图片上传与管理
+- 编辑器支持三种图片插入方式：工具栏按钮选择文件、Ctrl+V 粘贴剪贴板图片、拖拽图片文件到编辑器
+- 图片统一存储到 `_attachments/` 目录，文件名带时间戳防冲突
+- 保存笔记时自动清理已删除的图片文件（对比新旧内容中的图片 URL）
+- 新增 `DELETE /api/attachment` 端点，安全校验路径必须以 `_attachments/` 开头
+- 图片在编辑器内联显示，悬停有蓝色高亮边框
+
+### 新增：数学公式支持（KaTeX）
+- 新增自定义 Tiptap 节点扩展 `InlineMath` 和 `BlockMath`（替代需要 Tiptap v3 的 @tiptap/extension-mathematics）
+- 行内公式 `$...$` 和块级公式 `$$...$$` 在编辑器内实时 KaTeX 渲染
+- 点击已有公式弹出编辑弹窗，支持修改 LaTeX 并原地更新
+- KaTeX 从 CDN 加载（CSS + JS），编辑器和查看器均支持数学公式
+- PDF 导出也使用 CDN KaTeX 渲染公式
+
+### 新增：公式输入弹窗
+- 替换浏览器 `prompt()` 为自定义模态弹窗，textarea 支持多行 LaTeX 输入
+- 实时预览：输入 LaTeX 即时渲染公式效果
+- 符号面板：希腊字母（α β γ δ...）、运算（分数 √ 积分 ∑ ∏ 极限）、关系（≤ ≥ ≠ ≈）、箭头（→ ← ⇒）、结构（上下标 向量 帽子）
+- 快捷键：Ctrl+Enter 确认，Esc 取消
+- 新增 ❓ 公式帮助面板：LaTeX 速查表（基础、希腊字母、大型运算符、关系运算符、矩阵、修饰）
+
+### 新增：粘贴自动解析数学公式
+- 粘贴 `$E = mc^2$` 自动转为行内公式节点
+- 粘贴 `$$\int...$$` 自动转为块级公式节点
+- 混合文本和公式时作为 Markdown 插入
+
+### 新增：Link 扩展
+- 添加 `@tiptap/extension-link`，工具栏链接按钮可用
+- 配置 `openOnClick: false, autolink: true`
+
+### 修复
+- 修复 `setLink is not a function` 错误（StarterKit 不包含 Link 扩展）
+- 修复 `insertBlockMath is not a function` 错误（改用 ProseMirror 底层 API 创建节点）
+- 修复 `Cannot set properties of null (setting '_editor')` 错误（vditor 赋值时序问题）
+- 修复数学符号按钮插入双反斜杠问题（HTML `data-math` 属性从 `\\` 改为 `\`）
+- 修复块级公式正则不支持多行（`[\s\S]+?` 替代 `.+?`）
+- 修复公式弹窗背景透明问题
+
 ## 2026-09-21
 
 ### 新增：代码文件扫描与显示支持
