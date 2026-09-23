@@ -1060,8 +1060,18 @@
       if (ed && latex) {
         const isBlock = mathModalMode === 'block';
         const nodeName = isBlock ? 'blockMath' : 'inlineMath';
-        const nodeType = ed.state.schema.nodes[nodeName];
-        if (!nodeType) { toast('数学公式扩展未加载', true); return; }
+        let nodeType = ed.state.schema.nodes[nodeName];
+        // Fallback: try common alternative names
+        if (!nodeType) nodeType = ed.state.schema.nodes['math'];
+        if (!nodeType) nodeType = ed.state.schema.nodes['katex'];
+        if (!nodeType) {
+          // Debug: find any node containing 'math' in its name
+          const mathNodes = Object.keys(ed.state.schema.nodes).filter(n => n.toLowerCase().includes('math') || n.toLowerCase().includes('katex'));
+          console.log('Available schema nodes:', Object.keys(ed.state.schema.nodes));
+          console.log('Math-related nodes:', mathNodes);
+          toast('数学公式扩展未加载，可用节点: ' + Object.keys(ed.state.schema.nodes).join(', '), true);
+          return;
+        }
 
         if (editPos != null) {
           // Editing existing — replace node at position
@@ -1341,6 +1351,8 @@
             },
           });
           editorRef.current = editor;
+          console.log('Editor schema nodes:', Object.keys(editor.state.schema.nodes));
+          console.log('Editor schema marks:', Object.keys(editor.state.schema.marks));
           return editor;
         }
 
