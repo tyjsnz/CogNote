@@ -701,7 +701,7 @@
     if (/\.(js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i.test(treeRel)) {
       try {
         const r = await fetch(fileUrl);
-        const text = await r.text();
+        const text = (await r.text()).replace(/\s+$/, '');
         const ext = treeRel.split('.').pop().toLowerCase();
         const langMap = { js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', h: 'c', hpp: 'cpp', rb: 'ruby', ex: 'elixir', exs: 'elixir', hs: 'haskell', clj: 'clojure', gql: 'graphql', tf: 'hcl', hcl: 'hcl', makefile: 'makefile', mk: 'makefile' };
         const lang = langMap[ext] || ext;
