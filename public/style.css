@@ -304,7 +304,6 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   min-width: 56px;
   flex-shrink: 0;
   font-size: 12px;
-  overflow: hidden;
 }
 .code-lines code {
   display: block;
@@ -322,7 +321,6 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   flex: 1;
   min-width: 0;
   background: #ffffff;
-  overflow: hidden;
 }
 .code-content code {
   display: block;
