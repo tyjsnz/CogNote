@@ -997,6 +997,101 @@
     }
   }
 
+  // ---------- Math Modal ----------
+  let mathModalResolve = null;
+  let mathModalMode = 'inline'; // 'inline' or 'block'
+
+  function showMathModal(defaultLatex, mode) {
+    mathModalMode = mode || 'inline';
+    return new Promise((resolve) => {
+      mathModalResolve = resolve;
+      const modal = $('#math-modal');
+      const input = $('#math-input');
+      const preview = $('#math-preview');
+      const title = $('#math-modal-title');
+      title.textContent = mode === 'block' ? '插入块级公式' : '插入行内公式';
+      input.value = defaultLatex || '';
+      preview.innerHTML = '<span class="math-placeholder">公式预览</span>';
+      modal.classList.remove('hidden');
+      input.focus();
+      updateMathPreview();
+    });
+  }
+
+  function updateMathPreview() {
+    const input = $('#math-input');
+    const preview = $('#math-preview');
+    const latex = input.value.trim();
+    if (!latex) { preview.innerHTML = '<span class="math-placeholder">公式预览</span>'; return; }
+    try {
+      if (window.katex) {
+        preview.innerHTML = window.katex.renderToString(latex, { displayMode: mathModalMode === 'block', throwOnError: false, strict: false });
+      } else {
+        preview.textContent = latex;
+      }
+    } catch { preview.textContent = latex; }
+  }
+
+  function initMathModal() {
+    const modal = $('#math-modal');
+    const input = $('#math-input');
+    if (!modal || !input) return;
+
+    input.addEventListener('input', updateMathPreview);
+
+    $('#math-modal-close').addEventListener('click', () => {
+      modal.classList.add('hidden');
+      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
+    });
+    modal.querySelector('.modal-overlay').addEventListener('click', () => {
+      modal.classList.add('hidden');
+      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
+    });
+    $('#math-modal-cancel').addEventListener('click', () => {
+      modal.classList.add('hidden');
+      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
+    });
+    $('#math-modal-ok').addEventListener('click', () => {
+      const latex = input.value.trim();
+      modal.classList.add('hidden');
+      if (mathModalResolve) { mathModalResolve(latex || null); mathModalResolve = null; }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        $('#math-modal-ok').click();
+      }
+      if (e.key === 'Escape') {
+        modal.classList.add('hidden');
+        if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
+      }
+    });
+
+    // Symbol buttons insert at cursor
+    modal.querySelectorAll('[data-math]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sym = btn.dataset.math;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.slice(0, start) + sym + input.value.slice(end);
+        input.selectionStart = input.selectionEnd = start + sym.length;
+        input.focus();
+        updateMathPreview();
+      });
+    });
+
+    // Help button
+    $('#math-help-btn').addEventListener('click', () => {
+      $('#math-help-modal').classList.remove('hidden');
+    });
+    $('#math-help-close').addEventListener('click', () => {
+      $('#math-help-modal').classList.add('hidden');
+    });
+    $('#math-help-modal').querySelector('.modal-overlay').addEventListener('click', () => {
+      $('#math-help-modal').classList.add('hidden');
+    });
+  }
+
   function ensureMonaco() {
     if (monacoReady && monacoEditor) return Promise.resolve(monacoEditor);
     return new Promise((resolve, reject) => {
@@ -1142,18 +1237,20 @@
               Mathematics.configure({
                 inlineOptions: {
                   onClick: (node, pos) => {
-                    const latex = prompt('编辑行内公式：', node.attrs.latex);
-                    if (latex != null) {
-                      editor.chain().setNodeSelection(pos).updateInlineMath({ latex }).focus().run();
-                    }
+                    showMathModal(node.attrs.latex, 'inline').then((latex) => {
+                      if (latex != null) {
+                        editor.chain().setNodeSelection(pos).updateInlineMath({ latex }).focus().run();
+                      }
+                    });
                   },
                 },
                 blockOptions: {
                   onClick: (node, pos) => {
-                    const latex = prompt('编辑块级公式：', node.attrs.latex);
-                    if (latex != null) {
-                      editor.chain().setNodeSelection(pos).updateBlockMath({ latex }).focus().run();
-                    }
+                    showMathModal(node.attrs.latex, 'block').then((latex) => {
+                      if (latex != null) {
+                        editor.chain().setNodeSelection(pos).updateBlockMath({ latex }).focus().run();
+                      }
+                    });
                   },
                 },
                 katexOptions: {
@@ -1175,14 +1272,41 @@
               },
               handlePaste: (view, event) => {
                 const items = event.clipboardData?.items;
-                if (!items) return false;
-                for (const item of items) {
-                  if (item.type.startsWith('image/')) {
-                    event.preventDefault();
-                    const file = item.getAsFile();
-                    if (file) uploadAndInsertImage(file);
-                    return true;
+                if (items) {
+                  for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                      event.preventDefault();
+                      const file = item.getAsFile();
+                      if (file) uploadAndInsertImage(file);
+                      return true;
+                    }
                   }
+                }
+                // Auto-parse $...$ and $$...$$ from pasted text
+                const text = event.clipboardData?.getData('text/plain');
+                if (text && (/\$[^$]+\$/s.test(text) || /\$\$[\s\S]+\$\$/.test(text))) {
+                  event.preventDefault();
+                  const ed = editorRef.current;
+                  if (!ed) return false;
+                  // Check for block math $$...$$
+                  const blockRe = /\$\$([\s\S]+?)\$\$/g;
+                  let hasBlock = false;
+                  let result = text.replace(blockRe, (_, latex) => { hasBlock = true; return latex; });
+                  if (hasBlock) {
+                    ed.chain().focus().insertContent('$$\n' + result.trim() + '\n$$').run();
+                  } else {
+                    // Inline math $...$
+                    const inlineRe = /\$([^$]+?)\$/g;
+                    const matches = [...text.matchAll(inlineRe)];
+                    if (matches.length === 1 && matches[0][0] === text.trim()) {
+                      // Entire paste is one math expression — insert as math node
+                      ed.chain().focus().insertContent('$' + matches[0][1] + '$').run();
+                    } else {
+                      // Mixed text and math — insert as markdown
+                      ed.chain().focus().insertContent(text).run();
+                    }
+                  }
+                  return true;
                 }
                 return false;
               },
@@ -1265,17 +1389,15 @@
                 break;
               }
               case 'insertInlineMath': {
-                const latex = prompt('输入行内公式 (LaTeX)：', 'E = mc^2');
-                if (latex != null && latex.trim()) {
-                  chain.insertContent('$' + latex + '$').run();
-                }
+                showMathModal('E = mc^2', 'inline').then((latex) => {
+                  if (latex) chain.insertContent('$' + latex + '$').run();
+                });
                 break;
               }
               case 'insertBlockMath': {
-                const latex = prompt('输入块级公式 (LaTeX)：', '\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}');
-                if (latex != null && latex.trim()) {
-                  chain.insertContent('$$\n' + latex + '\n$$').run();
-                }
+                showMathModal('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', 'block').then((latex) => {
+                  if (latex) chain.insertContent('$$\n' + latex + '\n$$').run();
+                });
                 break;
               }
               case 'undo': chain.undo().run(); break;
@@ -1310,6 +1432,7 @@
           ed2.on('transaction', updateActiveStates);
         }
         wireToolbar();
+        initMathModal();
 
         vditor = {
           _editor: editorRef.current,

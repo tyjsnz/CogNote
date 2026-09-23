@@ -307,6 +307,172 @@
     <button id="btn-review-dismiss" class="review-score-dismiss">跳过</button>
   </div>
 
+  <!-- 数学公式输入弹窗 -->
+  <div id="math-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content math-dialog">
+      <div class="math-dialog-header">
+        <span id="math-modal-title">插入公式</span>
+        <div>
+          <button id="math-help-btn" class="math-icon-btn" title="公式帮助">❓</button>
+          <button id="math-modal-close" class="math-icon-btn" title="关闭">✕</button>
+        </div>
+      </div>
+      <div class="math-dialog-body">
+        <div class="math-preview" id="math-preview"><span class="math-placeholder">公式预览</span></div>
+        <textarea id="math-input" rows="4" placeholder="输入 LaTeX 公式..." spellcheck="false"></textarea>
+        <div class="math-symbols">
+          <div class="math-sym-row">
+            <span class="math-sym-label">希腊字母</span>
+            <div class="math-sym-btns">
+              <button data-math="\\alpha" title="α">α</button>
+              <button data-math="\\beta" title="β">β</button>
+              <button data-math="\\gamma" title="γ">γ</button>
+              <button data-math="\\delta" title="δ">δ</button>
+              <button data-math="\\epsilon" title="ε">ε</button>
+              <button data-math="\\theta" title="θ">θ</button>
+              <button data-math="\\lambda" title="λ">λ</button>
+              <button data-math="\\mu" title="μ">μ</button>
+              <button data-math="\\pi" title="π">π</button>
+              <button data-math="\\sigma" title="σ">σ</button>
+              <button data-math="\\phi" title="φ">φ</button>
+              <button data-math="\\omega" title="ω">ω</button>
+              <button data-math="\\Delta" title="Δ">Δ</button>
+              <button data-math="\\Sigma" title="Σ">Σ</button>
+              <button data-math="\\Omega" title="Ω">Ω</button>
+            </div>
+          </div>
+          <div class="math-sym-row">
+            <span class="math-sym-label">运算</span>
+            <div class="math-sym-btns">
+              <button data-math="\\frac{a}{b}" title="分数">a/b</button>
+              <button data-math="\\sqrt{x}" title="根号">√x</button>
+              <button data-math="\\int" title="积分">∫</button>
+              <button data-math="\\int_{a}^{b}" title="定积分">∫ab</button>
+              <button data-math="\\sum_{i=1}^{n}" title="求和">∑</button>
+              <button data-math="\\prod_{i=1}^{n}" title="连乘">∏</button>
+              <button data-math="\\lim_{x \\to \\infty}" title="极限">lim</button>
+              <button data-math="\\partial" title="偏导">∂</button>
+              <button data-math="\\nabla" title="梯度">∇</button>
+            </div>
+          </div>
+          <div class="math-sym-row">
+            <span class="math-sym-label">关系</span>
+            <div class="math-sym-btns">
+              <button data-math="\\leq" title="≤">≤</button>
+              <button data-math="\\geq" title="≥">≥</button>
+              <button data-math="\\neq" title="≠">≠</button>
+              <button data-math="\\approx" title="≈">≈</button>
+              <button data-math="\\equiv" title="≡">≡</button>
+              <button data-math="\\sim" title="∼">∼</button>
+              <button data-math="\\in" title="∈">∈</button>
+              <button data-math="\\subset" title="⊂">⊂</button>
+              <button data-math="\\cup" title="∪">∪</button>
+              <button data-math="\\cap" title="∩">∩</button>
+            </div>
+          </div>
+          <div class="math-sym-row">
+            <span class="math-sym-label">箭头</span>
+            <div class="math-sym-btns">
+              <button data-math="\\rightarrow" title="→">→</button>
+              <button data-math="\\leftarrow" title="←">←</button>
+              <button data-math="\\Rightarrow" title="⇒">⇒</button>
+              <button data-math="\\Leftrightarrow" title="⇔">⇔</button>
+              <button data-math="\\to" title="→">→</button>
+              <button data-math="\\mapsto" title="↦">↦</button>
+            </div>
+          </div>
+          <div class="math-sym-row">
+            <span class="math-sym-label">结构</span>
+            <div class="math-sym-btns">
+              <button data-math="^{x}" title="上标">xⁿ</button>
+              <button data-math="_{x}" title="下标">xₙ</button>
+              <button data-math="\\vec{a}" title="向量">a⃗</button>
+              <button data-math="\\hat{a}" title="帽子">â</button>
+              <button data-math="\\bar{a}" title="横线">ā</button>
+              <button data-math="\\dot{a}" title="点">ȧ</button>
+              <button data-math="\\overline{ab}" title="上横线">––</button>
+              <button data-math="\\underbrace{a+b}_{n}" title="下括号">⏟</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="math-dialog-footer">
+        <button id="math-modal-cancel" class="btn-cancel">取消</button>
+        <button id="math-modal-ok" class="btn-primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数学公式帮助面板 -->
+  <div id="math-help-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content math-help-dialog">
+      <div class="math-dialog-header">
+        <span>LaTeX 公式速查</span>
+        <button id="math-help-close" class="math-icon-btn" title="关闭">✕</button>
+      </div>
+      <div class="math-help-body">
+        <div class="math-help-section">
+          <h4>基础</h4>
+          <table class="math-help-table">
+            <tr><td><code>x^{2}</code></td><td>上标 x²</td><td><code>x_{i}</code></td><td>下标 xᵢ</td></tr>
+            <tr><td><code>\frac{a}{b}</code></td><td>分数 a/b</td><td><code>\sqrt{x}</code></td><td>根号 √x</td></tr>
+            <tr><td><code>\sqrt[n]{x}</code></td><td>n次根</td><td><code>|x|</code></td><td>绝对值</td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>希腊字母</h4>
+          <table class="math-help-table">
+            <tr><td><code>\alpha \beta \gamma</code></td><td>α β γ</td><td><code>\delta \epsilon \zeta</code></td><td>δ ε ζ</td></tr>
+            <tr><td><code>\theta \lambda \mu</code></td><td>θ λ μ</td><td><code>\pi \sigma \phi</code></td><td>π σ φ</td></tr>
+            <tr><td><code>\omega \tau \chi</code></td><td>ω τ χ</td><td><code>\Gamma \Delta \Theta</code></td><td>Γ Δ Θ</td></tr>
+            <tr><td><code>\Sigma \Pi \Omega</code></td><td>Σ Π Ω</td><td></td><td></td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>大型运算符</h4>
+          <table class="math-help-table">
+            <tr><td><code>\sum_{i=1}^{n} x_i</code></td><td>求和 ∑</td><td><code>\prod_{i=1}^{n} x_i</code></td><td>连乘 ∏</td></tr>
+            <tr><td><code>\int_{a}^{b} f(x)dx</code></td><td>积分 ∫</td><td><code>\iint</code></td><td>二重积分</td></tr>
+            <tr><td><code>\lim_{x \to 0} f(x)</code></td><td>极限 lim</td><td><code>\bigcup_{i=1}^{n}</code></td><td>并集</td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>关系与运算符</h4>
+          <table class="math-help-table">
+            <tr><td><code>\leq \geq \neq</code></td><td>≤ ≥ ≠</td><td><code>\approx \equiv \sim</code></td><td>≈ ≡ ∼</td></tr>
+            <tr><td><code>\pm \times \div</code></td><td>± × ÷</td><td><code>\cdot \circ \otimes</code></td><td>· ∘ ⊗</td></tr>
+            <tr><td><code>\in \notin \subset</code></td><td>∈ ∉ ⊂</td><td><code>\cup \cap \setminus</code></td><td>∪ ∖ ∩</td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>箭头</h4>
+          <table class="math-help-table">
+            <tr><td><code>\rightarrow \leftarrow</code></td><td>→ ←</td><td><code>\Rightarrow \Leftarrow</code></td><td>⇒ ⇐</td></tr>
+            <tr><td><code>\leftrightarrow \Leftrightarrow</code></td><td>↔ ⇔</td><td><code>\mapsto \to</code></td><td>↦ →</td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>矩阵与数组</h4>
+          <table class="math-help-table">
+            <tr><td colspan="2"><code>\begin{pmatrix} a &amp; b \\ c &amp; d \end{pmatrix}</code> → 圆括号矩阵</td></tr>
+            <tr><td colspan="2"><code>\begin{bmatrix} a &amp; b \\ c &amp; d \end{bmatrix}</code> → 方括号矩阵</td></tr>
+            <tr><td colspan="2"><code>\begin{cases} x &gt; 0 \\ y &lt; 0 \end{cases}</code> → 分段函数</td></tr>
+          </table>
+        </div>
+        <div class="math-help-section">
+          <h4>修饰</h4>
+          <table class="math-help-table">
+            <tr><td><code>\vec{a}</code></td><td>向量 a⃗</td><td><code>\hat{a}</code></td><td>帽子 â</td></tr>
+            <tr><td><code>\bar{a}</code></td><td>横线 ā</td><td><code>\dot{a}</code></td><td>点 ȧ</td></tr>
+            <tr><td><code>\overline{ab}</code></td><td>上横线</td><td><code>\underline{ab}</code></td><td>下横线</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="vendor/vditor/dist/js/highlight.js/highlight.min.js"></script>
   <script src="vendor/vditor/dist/js/highlight.js/third-languages.js"></script>
   <script src="markdown.js"></script>
