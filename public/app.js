@@ -1229,6 +1229,7 @@
         const tiptapTaskList = await import('@tiptap/extension-task-list');
         const tiptapTaskItem = await import('@tiptap/extension-task-item');
         const tiptapImage = await import('@tiptap/extension-image');
+        const tiptapLink = await import('@tiptap/extension-link');
         const katex = await import('katex');
 
         const Editor = tiptapCore.Editor;
@@ -1238,6 +1239,7 @@
         const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
         const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
         const Image = tiptapImage.Image || tiptapImage.default;
+        const Link = tiptapLink.Link || tiptapLink.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
         if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
@@ -1353,6 +1355,11 @@
               Image.configure({
                 inline: true,
                 allowBase64: true,
+              }),
+              Link.configure({
+                openOnClick: false,
+                autolink: true,
+                HTMLAttributes: { class: 'tiptap-link' },
               }),
               InlineMath,
               BlockMath,
