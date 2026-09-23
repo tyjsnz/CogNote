@@ -286,11 +286,12 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 }
 .code-body {
   display: flex;
-  overflow-x: auto;
+  overflow: auto;
   font-family: Consolas, "SF Mono", "Fira Code", "Courier New", monospace;
   font-size: 13px;
   line-height: 1.7;
   background: #fafbfc;
+  max-height: 70vh;
 }
 .code-lines {
   margin: 0;
@@ -303,6 +304,7 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
   min-width: 56px;
   flex-shrink: 0;
   font-size: 12px;
+  overflow: hidden;
 }
 .code-lines code {
   display: block;
@@ -317,10 +319,10 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 .code-content {
   margin: 0;
   padding: 16px 20px;
-  overflow-x: auto;
   flex: 1;
   min-width: 0;
   background: #ffffff;
+  overflow: hidden;
 }
 .code-content code {
   display: block;
