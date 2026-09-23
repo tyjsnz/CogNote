@@ -1229,21 +1229,108 @@
         const tiptapTaskList = await import('@tiptap/extension-task-list');
         const tiptapTaskItem = await import('@tiptap/extension-task-item');
         const tiptapImage = await import('@tiptap/extension-image');
-        const tiptapMath = await import('@tiptap/extension-mathematics');
+        const tiptapCore = await import('@tiptap/core');
         const katex = await import('katex');
 
         const Editor = tiptapCore.Editor;
+        const Node = tiptapCore.Node;
         const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
         const Markdown = tiptapMd.Markdown || tiptapMd.default;
         const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
         const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
         const Image = tiptapImage.Image || tiptapImage.default;
-        const Mathematics = tiptapMath.Mathematics || tiptapMath.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
         if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
         if (!Markdown) { reject(new Error('Markdown 未加载: ' + Object.keys(tiptapMd).join(','))); return; }
-        if (!Mathematics) { reject(new Error('Mathematics 未加载: ' + Object.keys(tiptapMath).join(','))); return; }
+
+        // Custom math extensions (replaces @tiptap/extension-mathematics which requires v3)
+        const InlineMath = Node.create({
+          name: 'inlineMath',
+          group: 'inline',
+          inline: true,
+          atom: true,
+          addAttributes() { return { latex: { default: '' } }; },
+          parseHTML() { return [{ tag: 'span[data-inline-math]' }]; },
+          renderHTML({ HTMLAttributes }) {
+            return ['span', { 'data-inline-math': '', ...HTMLAttributes }];
+          },
+          addNodeView() {
+            return ({ node, getPos }) => {
+              const dom = document.createElement('span');
+              dom.className = 'math-inline';
+              dom.setAttribute('data-latex', node.attrs.latex);
+              dom.style.cursor = 'pointer';
+              const render = () => {
+                try {
+                  if (window.katex) {
+                    dom.innerHTML = window.katex.renderToString(node.attrs.latex, { throwOnError: false, strict: false });
+                  } else {
+                    dom.textContent = '$' + node.attrs.latex + '$';
+                  }
+                } catch { dom.textContent = '$' + node.attrs.latex + '$'; }
+              };
+              render();
+              dom.addEventListener('click', () => {
+                const pos = typeof getPos === 'function' ? getPos() : null;
+                if (pos != null) showMathModal(node.attrs.latex, 'inline', editorRef.current, pos);
+              });
+              return {
+                dom,
+                update: (updatedNode) => {
+                  if (updatedNode.type.name !== 'inlineMath') return false;
+                  node = updatedNode;
+                  dom.setAttribute('data-latex', node.attrs.latex);
+                  render();
+                  return true;
+                },
+              };
+            };
+          },
+        });
+
+        const BlockMath = Node.create({
+          name: 'blockMath',
+          group: 'block',
+          atom: true,
+          addAttributes() { return { latex: { default: '' } }; },
+          parseHTML() { return [{ tag: 'div[data-block-math]' }]; },
+          renderHTML({ HTMLAttributes }) {
+            return ['div', { 'data-block-math': '', ...HTMLAttributes }];
+          },
+          addNodeView() {
+            return ({ node, getPos }) => {
+              const dom = document.createElement('div');
+              dom.className = 'math-block';
+              dom.setAttribute('data-latex', node.attrs.latex);
+              dom.style.cursor = 'pointer';
+              const render = () => {
+                try {
+                  if (window.katex) {
+                    dom.innerHTML = window.katex.renderToString(node.attrs.latex, { displayMode: true, throwOnError: false, strict: false });
+                  } else {
+                    dom.textContent = '$$' + node.attrs.latex + '$$';
+                  }
+                } catch { dom.textContent = '$$' + node.attrs.latex + '$$'; }
+              };
+              render();
+              dom.addEventListener('click', () => {
+                const pos = typeof getPos === 'function' ? getPos() : null;
+                if (pos != null) showMathModal(node.attrs.latex, 'block', editorRef.current, pos);
+              });
+              return {
+                dom,
+                update: (updatedNode) => {
+                  if (updatedNode.type.name !== 'blockMath') return false;
+                  node = updatedNode;
+                  dom.setAttribute('data-latex', node.attrs.latex);
+                  render();
+                  return true;
+                },
+              };
+            };
+          },
+        });
 
         const editorRef = { current: null };
 
@@ -1268,28 +1355,8 @@
                 inline: true,
                 allowBase64: true,
               }),
-              Mathematics.configure({
-                inlineOptions: {
-                  onClick: (node, pos) => {
-                    showMathModal(node.attrs.latex, 'inline', editor, pos);
-                  },
-                },
-                blockOptions: {
-                  onClick: (node, pos) => {
-                    showMathModal(node.attrs.latex, 'block', editor, pos);
-                  },
-                },
-                katexOptions: {
-                  throwOnError: false,
-                  macros: {
-                    '\\R': '\\mathbb{R}',
-                    '\\N': '\\mathbb{N}',
-                    '\\Z': '\\mathbb{Z}',
-                    '\\Q': '\\mathbb{Q}',
-                    '\\C': '\\mathbb{C}',
-                  },
-                },
-              }),
+              InlineMath,
+              BlockMath,
             ],
             content: markdown || '',
             editorProps: {
