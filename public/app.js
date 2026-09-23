@@ -1058,20 +1058,24 @@
       const editPos = modal._mathEditPos;
       modal.classList.add('hidden');
       if (ed && latex) {
+        const isBlock = mathModalMode === 'block';
+        const nodeName = isBlock ? 'blockMath' : 'inlineMath';
+        const nodeType = ed.state.schema.nodes[nodeName];
+        if (!nodeType) { toast('数学公式扩展未加载', true); return; }
+
         if (editPos != null) {
-          // Editing existing math node — update in place
-          if (mathModalMode === 'block') {
-            ed.chain().setNodeSelection(editPos).updateBlockMath({ latex }).focus().run();
-          } else {
-            ed.chain().setNodeSelection(editPos).updateInlineMath({ latex }).focus().run();
-          }
+          // Editing existing — replace node at position
+          const node = nodeType.create({ latex });
+          const tr = ed.state.tr.setNodeMarkup(editPos, undefined, { latex });
+          ed.view.dispatch(tr);
+          ed.commands.focus();
         } else {
-          // Inserting new math node
-          if (mathModalMode === 'block') {
-            ed.chain().focus().insertBlockMath({ latex }).run();
-          } else {
-            ed.chain().focus().insertInlineMath({ latex }).run();
-          }
+          // Inserting new
+          const node = nodeType.create({ latex });
+          const { from } = ed.state.selection;
+          const tr = ed.state.tr.insert(from, node);
+          ed.view.dispatch(tr);
+          ed.commands.focus();
         }
       }
       if (mathModalResolve) { mathModalResolve(latex || null); mathModalResolve = null; }
