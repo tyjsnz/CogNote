@@ -42,7 +42,7 @@
 
     // 数学公式优先提取，防止 HTML 转义破坏 < > 等字符
     const mathCache = [];
-    s = s.replace(/\$\$(.+?)\$\$/g, (_, m) => {
+    s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => {
       mathCache.push(renderBlockMath(m));
       return '\u0000KX' + (mathCache.length - 1) + '\u0000';
     });
