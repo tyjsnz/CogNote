@@ -1229,7 +1229,6 @@
         const tiptapTaskList = await import('@tiptap/extension-task-list');
         const tiptapTaskItem = await import('@tiptap/extension-task-item');
         const tiptapImage = await import('@tiptap/extension-image');
-        const tiptapCore = await import('@tiptap/core');
         const katex = await import('katex');
 
         const Editor = tiptapCore.Editor;
