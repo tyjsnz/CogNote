@@ -972,6 +972,31 @@
     return map[ext] || ext;
   }
 
+  function extractImageUrls(text) {
+    const urls = new Set();
+    const re = /!\[.*?\]\((\/api\/file\?rel=_attachments[^)]+)\)/g;
+    let m;
+    while ((m = re.exec(text))) urls.add(m[1]);
+    return urls;
+  }
+
+  async function cleanupRemovedImages(oldContent, newContent) {
+    const oldUrls = extractImageUrls(oldContent);
+    const newUrls = extractImageUrls(newContent);
+    for (const url of oldUrls) {
+      if (!newUrls.has(url)) {
+        const rel = decodeURIComponent(url.split('rel=')[1]);
+        try {
+          await fetch('/api/attachment', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rel }),
+          });
+        } catch {}
+      }
+    }
+  }
+
   function ensureMonaco() {
     if (monacoReady && monacoEditor) return Promise.resolve(monacoEditor);
     return new Promise((resolve, reject) => {
@@ -1359,10 +1384,15 @@
     const tags = $('#edit-tags').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
     let body = editorMode === 'source' ? $('#md-source').value : (vditor ? vditor.getValue() : '');
 
+    let oldContent = '';
     let newRel;
     if (state.currentRel) {
       newRel = state.currentRel;
       state.prevRel = null;
+      try {
+        const oldResp = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+        if (oldResp && oldResp.content) oldContent = oldResp.content;
+      } catch {}
     } else {
       const name = (title || '未命名笔记').replace(/[\\/:*?"<>|]/g, '_');
       newRel = uniqueRel(state.currentDir || '', name);
@@ -1395,6 +1425,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rel: newRel, content, dir: state.currentNoteDir || '' }),
     });
+    cleanupRemovedImages(oldContent, content).catch(() => {});
     toast('已保存: ' + newRel);
     await Promise.all([loadTree(), loadTags(), loadStats()]);
     await openNote(newRel);

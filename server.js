@@ -477,6 +477,17 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
   }
 
+  if (pathname === '/api/attachment' && req.method === 'DELETE') {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少 rel');
+    const rel = body.rel.replace(/\\/g, '/');
+    if (!rel.startsWith('_attachments/')) throw new Error('只能删除 _attachments 目录下的文件');
+    if (rel.includes('..')) throw new Error('路径不合法');
+    const abs = notesApi.safeResolve(config.notesDir, rel);
+    try { await fsp.unlink(abs); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (pathname === '/api/file' && req.method === 'GET') {
     const rel = url.searchParams.get('rel');
     const dir = url.searchParams.get('dir');
