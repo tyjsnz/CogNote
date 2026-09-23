@@ -1074,12 +1074,14 @@
         const tiptapMd = await import('tiptap-markdown');
         const tiptapTaskList = await import('@tiptap/extension-task-list');
         const tiptapTaskItem = await import('@tiptap/extension-task-item');
+        const tiptapImage = await import('@tiptap/extension-image');
 
         const Editor = tiptapCore.Editor;
         const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
         const Markdown = tiptapMd.Markdown || tiptapMd.default;
         const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
         const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
+        const Image = tiptapImage.Image || tiptapImage.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
         if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
@@ -1104,16 +1106,63 @@
               }),
               TaskList,
               TaskItem.configure({ nested: true }),
+              Image.configure({
+                inline: true,
+                allowBase64: true,
+              }),
             ],
             content: markdown || '',
             editorProps: {
               attributes: {
                 class: 'tiptap-editor',
               },
+              handlePaste: (view, event) => {
+                const items = event.clipboardData?.items;
+                if (!items) return false;
+                for (const item of items) {
+                  if (item.type.startsWith('image/')) {
+                    event.preventDefault();
+                    const file = item.getAsFile();
+                    if (file) uploadAndInsertImage(file);
+                    return true;
+                  }
+                }
+                return false;
+              },
+              handleDrop: (view, event) => {
+                const files = event.dataTransfer?.files;
+                if (!files) return false;
+                for (const file of files) {
+                  if (file.type.startsWith('image/')) {
+                    event.preventDefault();
+                    uploadAndInsertImage(file);
+                    return true;
+                  }
+                }
+                return false;
+              },
             },
           });
           editorRef.current = editor;
+          vditor._editor = editor;
           return editor;
+        }
+
+        async function uploadAndInsertImage(file) {
+          const ed = editorRef.current;
+          if (!ed) return;
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+            toast('正在上传图片...');
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '上传失败');
+            ed.chain().focus().setImage({ src: data.url, alt: file.name || '' }).run();
+            toast('图片已上传');
+          } catch (err) {
+            toast('图片上传失败: ' + err.message, true);
+          }
         }
 
         await createEditor('');
@@ -1149,8 +1198,14 @@
                 break;
               }
               case 'setImage': {
-                const src = prompt('输入图片地址：', 'https://');
-                if (src) chain.setImage({ src }).run();
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = () => {
+                  const file = input.files[0];
+                  if (file) uploadAndInsertImage(file);
+                };
+                input.click();
                 break;
               }
               case 'undo': chain.undo().run(); break;
@@ -2251,17 +2306,19 @@
             throw new Error(text || '上传失败（服务器返回非 JSON 响应）');
           }
           if (!res.ok) throw new Error(data.error || '上传失败');
-          // 插入到编辑器
-          const md = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i)
-            ? `![](${data.url})`
-            : `[${data.filename}](${data.url})`;
-          if (editorMode === 'source') {
-            const ta = $('#md-source');
-            const start = ta.selectionStart;
-            ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
-            ta.focus();
-          } else if (vditor) {
-            vditor.insertValue(md);
+          const isImage = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i);
+          if (isImage && editorMode !== 'source' && vditor && vditor._editor && typeof vditor._editor.chain === 'function') {
+            vditor._editor.chain().focus().setImage({ src: data.url, alt: data.filename || '' }).run();
+          } else {
+            const md = isImage ? `![](${data.url})` : `[${data.filename}](${data.url})`;
+            if (editorMode === 'source') {
+              const ta = $('#md-source');
+              const start = ta.selectionStart;
+              ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
+              ta.focus();
+            } else if (vditor) {
+              vditor.insertValue(md);
+            }
           }
           toast('已上传: ' + data.filename);
         } catch (err) {
