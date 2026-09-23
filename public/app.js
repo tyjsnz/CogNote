@@ -1001,20 +1001,21 @@
   let mathModalResolve = null;
   let mathModalMode = 'inline'; // 'inline' or 'block'
 
-  function showMathModal(defaultLatex, mode) {
+  function showMathModal(defaultLatex, mode, editor, editPos) {
     mathModalMode = mode || 'inline';
     return new Promise((resolve) => {
       mathModalResolve = resolve;
       const modal = $('#math-modal');
       const input = $('#math-input');
-      const preview = $('#math-preview');
       const title = $('#math-modal-title');
       title.textContent = mode === 'block' ? '插入块级公式' : '插入行内公式';
       input.value = defaultLatex || '';
-      preview.innerHTML = '<span class="math-placeholder">公式预览</span>';
+      $('#math-preview').innerHTML = '<span class="math-placeholder">公式预览</span>';
       modal.classList.remove('hidden');
       input.focus();
       updateMathPreview();
+      modal._mathEditor = editor || null;
+      modal._mathEditPos = editPos != null ? editPos : null;
     });
   }
 
@@ -1053,7 +1054,26 @@
     });
     $('#math-modal-ok').addEventListener('click', () => {
       const latex = input.value.trim();
+      const ed = modal._mathEditor;
+      const editPos = modal._mathEditPos;
       modal.classList.add('hidden');
+      if (ed && latex) {
+        if (editPos != null) {
+          // Editing existing math node — update in place
+          if (mathModalMode === 'block') {
+            ed.chain().setNodeSelection(editPos).updateBlockMath({ latex }).focus().run();
+          } else {
+            ed.chain().setNodeSelection(editPos).updateInlineMath({ latex }).focus().run();
+          }
+        } else {
+          // Inserting new math node
+          if (mathModalMode === 'block') {
+            ed.chain().focus().insertBlockMath({ latex }).run();
+          } else {
+            ed.chain().focus().insertInlineMath({ latex }).run();
+          }
+        }
+      }
       if (mathModalResolve) { mathModalResolve(latex || null); mathModalResolve = null; }
     });
     input.addEventListener('keydown', (e) => {
@@ -1237,20 +1257,12 @@
               Mathematics.configure({
                 inlineOptions: {
                   onClick: (node, pos) => {
-                    showMathModal(node.attrs.latex, 'inline').then((latex) => {
-                      if (latex != null) {
-                        editor.chain().setNodeSelection(pos).updateInlineMath({ latex }).focus().run();
-                      }
-                    });
+                    showMathModal(node.attrs.latex, 'inline', editor, pos);
                   },
                 },
                 blockOptions: {
                   onClick: (node, pos) => {
-                    showMathModal(node.attrs.latex, 'block').then((latex) => {
-                      if (latex != null) {
-                        editor.chain().setNodeSelection(pos).updateBlockMath({ latex }).focus().run();
-                      }
-                    });
+                    showMathModal(node.attrs.latex, 'block', editor, pos);
                   },
                 },
                 katexOptions: {
@@ -1389,15 +1401,11 @@
                 break;
               }
               case 'insertInlineMath': {
-                showMathModal('E = mc^2', 'inline').then((latex) => {
-                  if (latex) chain.insertContent('$' + latex + '$').run();
-                });
+                showMathModal('E = mc^2', 'inline', editorRef.current);
                 break;
               }
               case 'insertBlockMath': {
-                showMathModal('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', 'block').then((latex) => {
-                  if (latex) chain.insertContent('$$\n' + latex + '\n$$').run();
-                });
+                showMathModal('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', 'block', editorRef.current);
                 break;
               }
               case 'undo': chain.undo().run(); break;
