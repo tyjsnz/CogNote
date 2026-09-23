@@ -6,6 +6,8 @@
   <title>Cognote</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="vendor/vditor/dist/js/highlight.js/styles/github.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
   <script type="importmap">
   {
     "imports": {
@@ -14,6 +16,8 @@
       "@tiptap/extension-task-list": "https://esm.sh/@tiptap/extension-task-list@2",
       "@tiptap/extension-task-item": "https://esm.sh/@tiptap/extension-task-item@2",
       "@tiptap/extension-image": "https://esm.sh/@tiptap/extension-image@2",
+      "@tiptap/extension-mathematics": "https://esm.sh/@tiptap/extension-mathematics@2",
+      "katex": "https://esm.sh/katex@0.16.21",
       "tiptap-markdown": "https://esm.sh/tiptap-markdown@0.8"
     }
   }
@@ -107,6 +111,9 @@
           <span class="format-sep"></span>
           <button data-cmd="setLink" title="链接">🔗</button>
           <button data-cmd="setImage" title="图片">🖼</button>
+          <span class="format-sep"></span>
+          <button data-cmd="insertInlineMath" title="行内公式 ($...$)">$x$</button>
+          <button data-cmd="insertBlockMath" title="块级公式 ($$...$$)">$$x$$</button>
           <span class="format-sep"></span>
           <button data-cmd="undo" title="撤销 (Ctrl+Z)">↩</button>
           <button data-cmd="redo" title="重做 (Ctrl+Shift+Z)">↪</button>

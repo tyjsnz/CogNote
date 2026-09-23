@@ -497,6 +497,10 @@ mark { background: #ffe58f; border-radius: 2px; padding: 0 1px; }
 #vditor-wrap .tiptap-editor hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
 #vditor-wrap .tiptap-editor img { max-width: 100%; border-radius: 6px; cursor: pointer; }
 #vditor-wrap .tiptap-editor img:hover { outline: 2px solid var(--accent); outline-offset: 2px; }
+#vditor-wrap .tiptap-editor .math-inline { cursor: pointer; padding: 1px 4px; border-radius: 3px; transition: background 0.15s; }
+#vditor-wrap .tiptap-editor .math-inline:hover { background: rgba(var(--accent-rgb, 59,130,246), 0.1); }
+#vditor-wrap .tiptap-editor .math-block { display: block; overflow-x: auto; margin: 0.8em 0; padding: 0.5em 0; text-align: center; cursor: pointer; border-radius: 4px; transition: background 0.15s; }
+#vditor-wrap .tiptap-editor .math-block:hover { background: rgba(var(--accent-rgb, 59,130,246), 0.06); }
 #vditor-wrap .tiptap-editor .is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;

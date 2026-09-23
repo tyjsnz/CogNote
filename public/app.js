@@ -408,7 +408,7 @@
       win.document.open();
       win.document.write(
         '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">' +
-        '<link rel="stylesheet" href="' + base + 'vendor/vditor/dist/js/katex/katex.min.css">' +
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">' +
         '<title>导出 PDF…</title><style>' + printCss + '</style></head><body>' +
         '<div class="toolbar"><button onclick="window.focus();window.print();">⬇ 导出 PDF</button></div>' +
         '<div class="page"><div id="pdf-body">加载中…</div></div></body></html>'
@@ -1100,6 +1100,8 @@
         const tiptapTaskList = await import('@tiptap/extension-task-list');
         const tiptapTaskItem = await import('@tiptap/extension-task-item');
         const tiptapImage = await import('@tiptap/extension-image');
+        const tiptapMath = await import('@tiptap/extension-mathematics');
+        const katex = await import('katex');
 
         const Editor = tiptapCore.Editor;
         const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
@@ -1107,10 +1109,12 @@
         const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
         const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
         const Image = tiptapImage.Image || tiptapImage.default;
+        const Mathematics = tiptapMath.Mathematics || tiptapMath.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
         if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
         if (!Markdown) { reject(new Error('Markdown 未加载: ' + Object.keys(tiptapMd).join(','))); return; }
+        if (!Mathematics) { reject(new Error('Mathematics 未加载: ' + Object.keys(tiptapMath).join(','))); return; }
 
         const editorRef = { current: null };
 
@@ -1134,6 +1138,34 @@
               Image.configure({
                 inline: true,
                 allowBase64: true,
+              }),
+              Mathematics.configure({
+                inlineOptions: {
+                  onClick: (node, pos) => {
+                    const latex = prompt('编辑行内公式：', node.attrs.latex);
+                    if (latex != null) {
+                      editor.chain().setNodeSelection(pos).updateInlineMath({ latex }).focus().run();
+                    }
+                  },
+                },
+                blockOptions: {
+                  onClick: (node, pos) => {
+                    const latex = prompt('编辑块级公式：', node.attrs.latex);
+                    if (latex != null) {
+                      editor.chain().setNodeSelection(pos).updateBlockMath({ latex }).focus().run();
+                    }
+                  },
+                },
+                katexOptions: {
+                  throwOnError: false,
+                  macros: {
+                    '\\R': '\\mathbb{R}',
+                    '\\N': '\\mathbb{N}',
+                    '\\Z': '\\mathbb{Z}',
+                    '\\Q': '\\mathbb{Q}',
+                    '\\C': '\\mathbb{C}',
+                  },
+                },
               }),
             ],
             content: markdown || '',
@@ -1230,6 +1262,20 @@
                   if (file) uploadAndInsertImage(file);
                 };
                 input.click();
+                break;
+              }
+              case 'insertInlineMath': {
+                const latex = prompt('输入行内公式 (LaTeX)：', 'E = mc^2');
+                if (latex != null && latex.trim()) {
+                  chain.insertContent('$' + latex + '$').run();
+                }
+                break;
+              }
+              case 'insertBlockMath': {
+                const latex = prompt('输入块级公式 (LaTeX)：', '\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}');
+                if (latex != null && latex.trim()) {
+                  chain.insertContent('$$\n' + latex + '\n$$').run();
+                }
                 break;
               }
               case 'undo': chain.undo().run(); break;
