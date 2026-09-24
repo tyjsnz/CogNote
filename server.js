@@ -567,9 +567,12 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const stream = fs.createReadStream(abs);
     stream.on('error', (err) => {
       console.error(`[Cognote] 文件读取失败: ${abs} - ${err.message}`);
+      const friendly = ['ETIMEDOUT', 'EIO', 'ENETDOWN', 'ENETUNREACH'].includes(err.code)
+        ? '文件内容未下载到本地（云同步未就绪），请打开飞牛同步或检查 NAS 连接后重试'
+        : '文件读取失败: ' + err.message;
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('文件读取失败: ' + err.message);
+        res.end(friendly);
       } else {
         stream.destroy();
       }

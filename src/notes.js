@@ -26,12 +26,23 @@ async function readNote(notesDir, relPath) {
   const abs = safeResolve(notesDir, relPath);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 15000);
+  const isNetErr = (e) => ['ETIMEDOUT', 'EIO', 'ENETDOWN', 'ENETUNREACH', 'EHOSTUNREACH'].includes(e.code);
   try {
-    const content = await fsp.readFile(abs, { encoding: 'utf8', signal: ac.signal });
+    let content;
+    try {
+      content = await fsp.readFile(abs, { encoding: 'utf8', signal: ac.signal });
+    } catch (e) {
+      // 云同步（File Provider / NAS）数据文件首次读取常超时，稍候重试一次触发下载
+      if (isNetErr(e)) {
+        await new Promise((r) => setTimeout(r, 500));
+        content = await fsp.readFile(abs, { encoding: 'utf8', signal: ac.signal });
+      } else throw e;
+    }
     const st = await fsp.stat(abs);
     return { relPath: toPosix(relPath), content, size: st.size, mtimeMs: st.mtimeMs };
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('文件读取超时，请检查 NAS/云盘是否已挂载');
+    if (isNetErr(e)) throw new Error('文件内容未下载到本地（云同步未就绪），请打开飞牛同步或检查 NAS 连接后重试');
     throw e;
   } finally {
     clearTimeout(timer);
