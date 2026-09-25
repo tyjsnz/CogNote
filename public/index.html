@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>Cognote</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="vendor/vditor/dist/js/highlight.js/styles/github.min.css">
+  <link id="hljs-theme" rel="stylesheet" href="vendor/vditor/dist/js/highlight.js/styles/github.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
   <script type="importmap">
@@ -22,6 +23,25 @@
     }
   }
   </script>
+  <script>
+    /* 主题引导：首屏渲染前应用已存主题，避免闪烁（FOUC） */
+    (function () {
+      try {
+        var p = localStorage.getItem('kb.theme') || 'system';
+        if (['system', 'light', 'dark', 'warm'].indexOf(p) < 0) p = 'system';
+        var t = p === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : p;
+        var d = document.documentElement;
+        d.setAttribute('data-theme', t);
+        d.style.colorScheme = (t === 'dark' ? 'dark' : 'light');
+        var l = document.getElementById('hljs-theme');
+        if (l) l.href = t === 'dark'
+          ? 'vendor/vditor/dist/js/highlight.js/styles/github-dark.min.css'
+          : 'vendor/vditor/dist/js/highlight.js/styles/github.min.css';
+      } catch (e) { /* noop */ }
+    })();
+  </script>
 </head>
 <body>
   <header id="topbar">
@@ -34,6 +54,15 @@
       <span id="ai-badge" class="badge">AI 未配置</span>
       <button id="btn-rescan" title="重新扫描笔记目录">🔄 重新扫描</button>
       <button id="btn-show-links" title="查看笔记引用关系图">🔗 双链图</button>
+      <div class="theme-wrap">
+        <button id="btn-theme" title="外观主题">🎨</button>
+        <div id="theme-menu" class="theme-menu hidden">
+          <button type="button" class="theme-opt" data-theme-opt="system"><span class="sw-preview sw-system"></span>跟随系统<span class="tick">✓</span></button>
+          <button type="button" class="theme-opt" data-theme-opt="light"><span class="sw-preview sw-light"></span>浅色<span class="tick">✓</span></button>
+          <button type="button" class="theme-opt" data-theme-opt="dark"><span class="sw-preview sw-dark"></span>深色<span class="tick">✓</span></button>
+          <button type="button" class="theme-opt" data-theme-opt="warm"><span class="sw-preview sw-warm"></span>暖纸<span class="tick">✓</span></button>
+        </div>
+      </div>
       <a id="btn-settings" class="btn-link" title="设置" href="#">⚙️</a>
     </div>
   </header>
@@ -213,6 +242,13 @@
 <div id="dialog-settings" class="modal hidden">
     <div class="modal-box modal-wide">
       <h3>⚙️ 设置</h3>
+      <div class="settings-label">外观主题</div>
+      <div class="theme-swatches" id="settings-themes">
+        <button type="button" class="theme-swatch" data-theme-opt="system"><span class="sw-preview sw-system"></span>跟随系统<span class="tick">✓</span></button>
+        <button type="button" class="theme-swatch" data-theme-opt="light"><span class="sw-preview sw-light"></span>浅色<span class="tick">✓</span></button>
+        <button type="button" class="theme-swatch" data-theme-opt="dark"><span class="sw-preview sw-dark"></span>深色<span class="tick">✓</span></button>
+        <button type="button" class="theme-swatch" data-theme-opt="warm"><span class="sw-preview sw-warm"></span>暖纸<span class="tick">✓</span></button>
+      </div>
       <label>笔记目录（每行一个路径）
         <textarea id="cfg-notesdirs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;font-family:monospace;resize:vertical;" placeholder="D:\notes\dir1&#10;D:\notes\dir2"></textarea>
       </label>
@@ -255,8 +291,6 @@
         <button id="btn-settings-cancel" class="link-btn">关闭</button>
         <button id="btn-settings-ok" class="primary-btn">保存</button>
       </div>
-    </div>
-  </div>
     </div>
   </div>
 

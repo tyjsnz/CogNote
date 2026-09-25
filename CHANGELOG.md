@@ -1,5 +1,22 @@
 # 开发日志
 
+## 2026-09-25
+
+### 全新 UI：Apple 风格重设计 + 三主题系统
+- style.css 全面重写：设计令牌体系（字体/圆角/阴影/缓动/玻璃模糊），统一组件样式
+- 三套主题：浅色、深色、暖纸色，支持跟随系统（prefers-color-scheme）与手动切换
+- 主题切换入口：顶栏 🎨 菜单 + 设置面板「外观主题」色板；localStorage 持久化，首帧内联脚本防止刷新闪烁
+- 主题联动：highlight.js 代码高亮主题（github / github-dark）、Monaco 编辑器主题、color-scheme
+- 顶栏 / 侧栏 / AI 面板 / 工具栏玻璃拟态（backdrop-filter blur）
+- 内容优先：阅读宽度收敛 760px 居中，正文宽表格横向滚动兜底
+- 弹窗与菜单过渡动画，支持 prefers-reduced-motion 降低动效
+
+### 修复
+- 修复正文被挤成多列竖条的布局 bug（`#note-body` 即 `.markdown-body`，误加 `display:flex` 导致所有子元素成为横向 flex item）
+- 修复云同步文件未下载（ETIMEDOUT）时的报错体验：自动重试一次，仍失败提示「文件内容未下载到本地（云同步未就绪）…」（`readNote` 与 `/api/file` 流错误统一映射）
+- 修复前端 txt/代码文件读取失败时把错误当正文渲染的问题（补 `r.ok` 检查）
+- 修复不存在的 CSS 变量引用（`--primary` → `--accent`，`--error` → `--danger`）
+
 ## 2026-09-23
 
 ### 新增：图片上传与管理

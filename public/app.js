@@ -47,6 +47,56 @@
     } catch (e) { /* ignore */ }
   }
 
+  // ---------- 主题系统（跟随系统 + 手动切换，localStorage 持久化）----------
+  const THEME_KEY = 'kb.theme';
+  const VALID_THEMES = ['system', 'light', 'dark', 'warm'];
+  let themePref = 'system';
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    if (VALID_THEMES.includes(v)) themePref = v;
+  } catch (e) { /* ignore */ }
+  const mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+  function resolveTheme() {
+    if (themePref !== 'system') return themePref;
+    return mqDark && mqDark.matches ? 'dark' : 'light';
+  }
+
+  function monacoThemeName() {
+    return resolveTheme() === 'dark' ? 'vs-dark' : 'vs';
+  }
+
+  function applyTheme() {
+    const t = resolveTheme();
+    const root = document.documentElement;
+    root.setAttribute('data-theme', t);
+    root.style.colorScheme = t === 'dark' ? 'dark' : 'light';
+    const hl = document.getElementById('hljs-theme');
+    if (hl) {
+      hl.href = t === 'dark'
+        ? 'vendor/vditor/dist/js/highlight.js/styles/github-dark.min.css'
+        : 'vendor/vditor/dist/js/highlight.js/styles/github.min.css';
+    }
+    if (typeof monaco !== 'undefined' && monacoEditor) {
+      try { monaco.editor.setTheme(monacoThemeName()); } catch (e) { /* ignore */ }
+    }
+    document.querySelectorAll('[data-theme-opt]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.themeOpt === themePref);
+    });
+  }
+
+  function setTheme(pref) {
+    themePref = VALID_THEMES.includes(pref) ? pref : 'system';
+    try { localStorage.setItem(THEME_KEY, themePref); } catch (e) { /* ignore */ }
+    applyTheme();
+  }
+
+  if (mqDark) {
+    const onSchemeChange = () => { if (themePref === 'system') applyTheme(); };
+    if (mqDark.addEventListener) mqDark.addEventListener('change', onSchemeChange);
+    else if (mqDark.addListener) mqDark.addListener(onSchemeChange);
+  }
+
   // ---------- helpers ----------
   function toast(msg, isErr) {
     const el = $('#toast');
@@ -1171,7 +1221,7 @@
       monacoEditor = monaco.editor.create(container, {
         value: d.content,
         language: lang,
-        theme: 'vs',
+        theme: monacoThemeName(),
         fontSize: 14,
         fontFamily: 'Consolas, "SF Mono", "Fira Code", "Courier New", monospace',
         minimap: { enabled: true },
@@ -2061,7 +2111,7 @@
       const s = d.stats;
       let html = `<div style="margin-bottom:8px;">`;
       html += `<b>总计 ${s.total} 篇</b> · `;
-      html += `<span style="color:var(--primary)">待复习 ${s.dueCount}</span> · `;
+      html += `<span style="color:var(--accent)">待复习 ${s.dueCount}</span> · `;
       html += `新笔记 ${s.newCount} · `;
       html += `已复习 ${s.reviewedCount} · `;
       html += `已掌握 ${s.masteredCount}`;
@@ -2069,11 +2119,11 @@
       if (!d.items?.length) {
         html += '<p style="color:var(--muted)">今日无需复习，干得好！</p>';
       } else {
-        html += `<div id="review-list-toggle" style="cursor:pointer;color:var(--primary);font-size:13px;margin-bottom:4px;">▼ 展开复习列表（${d.items.length} 篇）</div>`;
+        html += `<div id="review-list-toggle" style="cursor:pointer;color:var(--accent);font-size:13px;margin-bottom:4px;">▼ 展开复习列表（${d.items.length} 篇）</div>`;
         html += '<ul id="review-list" style="margin:4px 0;padding-left:18px;display:none;">';
         for (const item of d.items) {
           const label = item.isNew ? '📖 新' : '🔄 待复习';
-          html += `<li><a href="#" class="review-link" data-rel="${esc(item.relPath)}" style="color:var(--primary);text-decoration:none;">${esc(item.title)}</a> <span style="color:var(--muted);font-size:12px;">${label}</span></li>`;
+          html += `<li><a href="#" class="review-link" data-rel="${esc(item.relPath)}" style="color:var(--accent);text-decoration:none;">${esc(item.title)}</a> <span style="color:var(--muted);font-size:12px;">${label}</span></li>`;
         }
         html += '</ul>';
         html += '<div style="margin-top:8px;font-size:12px;color:var(--muted);">打开笔记后，右下角出现评分面板，打分后自动标记复习完成。</div>';
@@ -2521,7 +2571,7 @@
         });
       });
     } catch (e) {
-      container.innerHTML = `<p style="color:var(--error)">加载失败: ${esc(e.message)}</p>`;
+      container.innerHTML = `<p style="color:var(--danger)">加载失败: ${esc(e.message)}</p>`;
     }
   }
 
@@ -2650,6 +2700,26 @@
     });
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
+
+    // 主题切换（顶栏菜单 + 设置色板共用 data-theme-opt）
+    $('#btn-theme').addEventListener('click', (e) => {
+      e.stopPropagation();
+      $('#theme-menu').classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+      const opt = e.target instanceof Element ? e.target.closest('[data-theme-opt]') : null;
+      if (opt) {
+        setTheme(opt.dataset.themeOpt);
+        const menu = $('#theme-menu');
+        if (menu) menu.classList.add('hidden');
+        return;
+      }
+      const menu = $('#theme-menu');
+      if (menu && !menu.classList.contains('hidden')
+        && !(e.target instanceof Element && e.target.closest('.theme-wrap'))) {
+        menu.classList.add('hidden');
+      }
+    });
     // AI 服务商切换 & 刷新模型列表
     $('#cfg-ai-provider').addEventListener('change', () => {
       const provider = $('#cfg-ai-provider').value;
@@ -2705,6 +2775,7 @@
   }
 
   async function init() {
+    applyTheme();
     bindEvents();
     bindTreeEvents();
     bindContextMenu();
