@@ -103,6 +103,7 @@ npm start
 - **KaTeX 数学公式**：行内 `$...$` 和块级 `$$...$$` 实时渲染，点击编辑，符号面板快捷输入
 - **图片管理**：粘贴/拖拽/按钮上传，自动存储到 `_attachments/`，保存时清理已删除图片
 - 标题 / 标签(frontmatter) / 正文分离；保存实时落盘
+- **选区 AI**：选中文字右键即可「AI 解释与扩展 / 改写润色」，结果一键**替换选中**或**插入到下方**
 - **源码模式**切换保持可用（textarea 直接编辑 Markdown）
 
 ### 代码文件支持
@@ -139,6 +140,7 @@ npm start
 | POST | /api/summarize | AI 复习摘要 |
 | POST | /api/quiz | AI 自测题 |
 | POST | /api/ask | AI 问答 |
+| POST | /api/ai/assist | 选区 AI（explain/rewrite） |
 | POST | /api/rescan | 重建索引 |
 | GET/POST | /api/config | 读取/保存配置 |
 | GET  | /api/links | 笔记引用关系图 |
@@ -156,6 +158,7 @@ npm start
 - [x] **v1.5** 代码文件：80+ 语言扫描/高亮/编辑（Monaco Editor）
 - [x] **v1.6** 编辑器升级：Tiptap WYSIWYG + 格式工具栏 + 图片管理 + KaTeX 公式
 - [x] **v1.7** 界面重设计：Apple 风格 + 浅色/深色/暖纸三主题（可跟随系统）
+- [x] **v1.8** 选区 AI：右键解释/改写 → 透明弹出层 → 替换选中或插入下方
 
 ## 常见问题
 

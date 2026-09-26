@@ -324,6 +324,22 @@
   <div id="toast" class="toast hidden"></div>
   <div id="ctx-menu" class="ctx-menu hidden"></div>
 
+  <!-- 选区 AI 助手（验证）：右键选区 → 透明弹出层 → 替换/插入 -->
+  <div id="ai-assist-pop" class="ai-assist-pop hidden">
+    <div class="aap-head">
+      <span class="aap-title" id="aap-title">✨ AI 解释与扩展</span>
+      <span class="aap-status" id="aap-status"></span>
+      <button type="button" class="aap-close" id="aap-close" title="关闭 (Esc)">✕</button>
+    </div>
+    <div class="aap-body" id="aap-body"></div>
+    <div class="aap-actions">
+      <button type="button" class="aap-btn primary" data-aap="replace">替换选中</button>
+      <button type="button" class="aap-btn" data-aap="insert">插入到下方</button>
+      <button type="button" class="aap-btn" data-aap="copy">复制结果</button>
+      <button type="button" class="aap-btn" data-aap="regen">重新生成</button>
+    </div>
+  </div>
+
   <!-- 复习评分浮动面板 -->
   <div id="review-score-panel" class="review-score-panel hidden">
     <div class="review-score-title">📝 标记复习掌握程度</div>

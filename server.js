@@ -723,6 +723,20 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     return sendJson(res, 200, { ok: true, answer });
   }
 
+  // 选区 AI 助手（编辑器右键菜单）：解释与扩展 / 改写润色
+  if (pathname === '/api/ai/assist' && req.method === 'POST') {
+    const body = await readBody(req);
+    const text = String(body.text || '').trim();
+    if (!text) throw new Error('未选择任何内容');
+    if (text.length > 6000) throw new Error('选中内容过长（最多 6000 字）');
+    const action = body.action === 'rewrite' ? 'rewrite' : 'explain';
+    const content = await ai.assistSelection(action, text, {
+      title: String(body.title || '').slice(0, 200),
+      instruction: String(body.instruction || '').slice(0, 500),
+    });
+    return sendJson(res, 200, { ok: true, content });
+  }
+
   // v1.4: 复习计划
   if (pathname === '/api/review/due' && req.method === 'GET') {
     const allRels = [...indexer.docs.keys()];

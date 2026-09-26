@@ -171,6 +171,31 @@ class DeepSeekAI {
     return this.chat(messages, { temperature: 0.3 });
   }
 
+  // 选区 AI 助手（编辑器右键菜单）：解释与扩展 / 改写润色
+  async assistSelection(action, text, { title = '', instruction = '' } = {}) {
+    const isRewrite = action === 'rewrite';
+    const task = isRewrite
+      ? '在保持原意、事实与语言（中文）不变的前提下改写润色，使表达更清晰、连贯、精炼。'
+      : '先简明解释其含义与背景，再扩展相关要点、注意事项或示例，帮助深入理解。';
+    const messages = [
+      { role: 'system', content: this._system('嵌入式系统、Linux 驱动、计算机视觉、跟踪算法、充电桩等') },
+      {
+        role: 'user',
+        content:
+          `请对笔记中的选中内容执行「${isRewrite ? '改写润色' : '解释与扩展'}」。\n` +
+          `任务：${task}\n` +
+          `要求：\n` +
+          `1. 直接输出 Markdown 结果，不要输出前言、说明或客套话；\n` +
+          `2. 不要用代码围栏包裹整个输出；\n` +
+          `3. 以可直接替换/插入笔记片段为目标，保持片段独立可读。\n` +
+          (title ? `笔记标题：${title}\n` : '') +
+          (instruction ? `补充要求：${instruction}\n` : '') +
+          `\n【选中内容】\n${text.slice(0, 6000)}\n\n【输出】`,
+      },
+    ];
+    return this.chat(messages, { temperature: isRewrite ? 0.5 : 0.4 });
+  }
+
   async batchClassify(docs, { batchSize = 20 } = {}) {
     const summaries = docs.map((d) => ({
       relPath: d.relPath,

@@ -572,8 +572,8 @@
     });
     document.addEventListener('click', hideCtxMenu);
     document.addEventListener('contextmenu', (e) => {
-      // 在目录树内右键由 #tree 处理；仅当右键点击无关区域时收起菜单
-      if (!e.target.closest('#tree, #move-tree, #ctx-menu')) hideCtxMenu();
+      // 在目录树/编辑器内右键由各自处理；仅当右键点击无关区域时收起菜单
+      if (!e.target.closest('#tree, #move-tree, #ctx-menu, #vditor-wrap')) hideCtxMenu();
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') hideCtxMenu();
@@ -1478,6 +1478,7 @@
           editorRef.current = editor;
           console.log('Editor schema nodes:', Object.keys(editor.state.schema.nodes));
           console.log('Editor schema marks:', Object.keys(editor.state.schema.marks));
+          wireSelectionAi(editor);
           return editor;
         }
 
@@ -1497,6 +1498,201 @@
             toast('图片上传失败: ' + err.message, true);
           }
         }
+
+        // ---------- 选区 AI 助手（验证）：右键菜单 → 透明弹出层 → 替换/插入 ----------
+        const assist = { action: '', text: '', from: 0, to: 0, markdown: '', html: '', wired: false, reqId: 0 };
+
+        function captureSelInfo(ed) {
+          try {
+            const s = ed.state.selection;
+            if (s.empty) return null;
+            const text = ed.state.doc.textBetween(s.from, s.to, '\n');
+            if (!text.trim()) return null;
+            const c1 = ed.view.coordsAtPos(s.from);
+            const c2 = ed.view.coordsAtPos(s.to);
+            return {
+              from: s.from,
+              to: s.to,
+              text,
+              rect: {
+                left: Math.min(c1.left, c2.left),
+                right: Math.max(c1.right, c2.right),
+                top: Math.min(c1.top, c2.top),
+                bottom: Math.max(c1.bottom, c2.bottom),
+              },
+            };
+          } catch (e) {
+            return null;
+          }
+        }
+
+        function wireSelectionAi(ed) {
+          const dom = ed.view.dom;
+          if (dom._aiWired) return;
+          dom._aiWired = true;
+          // 右键按下时快照选区（捕获阶段：先于 ProseMirror 的 mousedown 处理，避免选区已被折叠）
+          dom.addEventListener('mousedown', (e) => {
+            if (e.button === 2) window._aiSel = captureSelInfo(ed);
+          }, true);
+          dom.addEventListener('contextmenu', (e) => {
+            const info = captureSelInfo(ed) || window._aiSel;
+            window._aiSel = null;
+            hideCtxMenu();
+            if (!info) return; // 无选区：保留浏览器默认菜单
+            e.preventDefault();
+            window._aiSel = info;
+            showCtxMenu(e.clientX, e.clientY, [
+              { action: 'ai-explain', label: '✨ AI 解释与扩展' },
+              { action: 'ai-rewrite', label: '✨ AI 改写润色' },
+            ]);
+          });
+        }
+
+        function positionAssistPop() {
+          const pop = $('#ai-assist-pop');
+          const ed = editorRef.current;
+          if (!pop || pop.classList.contains('hidden') || !ed || !assist.text) return;
+          let rect;
+          try {
+            const c1 = ed.view.coordsAtPos(assist.from);
+            const c2 = ed.view.coordsAtPos(assist.to);
+            rect = {
+              left: Math.min(c1.left, c2.left),
+              right: Math.max(c1.right, c2.right),
+              top: Math.min(c1.top, c2.top),
+              bottom: Math.max(c1.bottom, c2.bottom),
+            };
+          } catch (e) {
+            return;
+          }
+          const w = pop.offsetWidth || 452;
+          const h = pop.offsetHeight || 200;
+          const maxH = window.innerHeight - 20;
+          let x = Math.min(rect.left, window.innerWidth - w - 10);
+          let y;
+          if (rect.bottom + 10 + h <= window.innerHeight - 10) {
+            y = rect.bottom + 10; // 首选：选区下方
+          } else if (rect.top - h - 10 >= 10) {
+            y = rect.top - h - 10; // 次选：选区上方
+          } else {
+            y = window.innerHeight - Math.min(h, maxH) - 10; // 上下都放不下：贴视口底，保证可用
+          }
+          pop.style.left = Math.max(10, x) + 'px';
+          pop.style.top = Math.max(10, y) + 'px';
+        }
+
+        function hideAssistPop() {
+          const pop = $('#ai-assist-pop');
+          if (pop) pop.classList.add('hidden');
+          assist.reqId++; // 使进行中的请求失效
+        }
+
+        function bindAssistPop() {
+          if (assist.wired) return;
+          assist.wired = true;
+          const pop = $('#ai-assist-pop');
+          $('#aap-close').addEventListener('click', hideAssistPop);
+          pop.querySelectorAll('.aap-btn').forEach((btn) =>
+            btn.addEventListener('click', async () => {
+              const ed = editorRef.current;
+              const act = btn.dataset.aap;
+              if (act === 'regen') {
+                runAssist(assist.action);
+                return;
+              }
+              if (act === 'copy') {
+                try {
+                  await navigator.clipboard.writeText(assist.markdown);
+                  toast('已复制结果');
+                } catch (e) {
+                  toast('复制失败: ' + e.message, true);
+                }
+                return;
+              }
+              if (!ed || !assist.html) return;
+              // 选区防漂移：确认原文未变
+              let cur = '';
+              try {
+                cur = ed.state.doc.textBetween(assist.from, assist.to, '\n');
+              } catch (e) { /* ignore */ }
+              if (cur !== assist.text) {
+                toast('选区内容已变化，请重新选择', true);
+                hideAssistPop();
+                return;
+              }
+              if (act === 'replace') {
+                ed.chain().focus().deleteRange({ from: assist.from, to: assist.to }).insertContent(assist.html).run();
+                toast('已用 AI 结果替换选中内容');
+              } else if (act === 'insert') {
+                ed.chain().focus().insertContentAt(assist.to, assist.html).run();
+                toast('已插入到选区下方');
+              }
+              hideAssistPop();
+            })
+          );
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') hideAssistPop();
+          });
+          window.addEventListener('scroll', positionAssistPop, true);
+          window.addEventListener('resize', positionAssistPop);
+          // 编辑器关闭时自动收起弹出层与菜单
+          const edEl = $('#editor');
+          if (edEl && !edEl._aiObs) {
+            edEl._aiObs = true;
+            new MutationObserver(() => {
+              if (edEl.classList.contains('hidden')) {
+                hideAssistPop();
+                hideCtxMenu();
+              }
+            }).observe(edEl, { attributes: true, attributeFilter: ['class'] });
+          }
+        }
+
+        async function runAssist(action) {
+          const sel = window._aiSel;
+          if (!sel) {
+            toast('请先选择内容', true);
+            return;
+          }
+          assist.action = action;
+          assist.text = sel.text;
+          assist.from = sel.from;
+          assist.to = sel.to;
+          assist.markdown = '';
+          assist.html = '';
+          bindAssistPop();
+          const pop = $('#ai-assist-pop');
+          const bodyEl = $('#aap-body');
+          $('#aap-title').textContent = action === 'rewrite' ? '✨ AI 改写润色' : '✨ AI 解释与扩展';
+          $('#aap-status').textContent = '';
+          bodyEl.classList.add('aap-loading');
+          bodyEl.innerHTML = '<div class="aap-placeholder">正在生成，请稍候…</div>';
+          pop.classList.remove('hidden');
+          positionAssistPop();
+          const reqId = ++assist.reqId;
+          try {
+            const d = await api('/api/ai/assist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action, text: assist.text, title: $('#edit-title').value || '' }),
+            });
+            if (reqId !== assist.reqId) return; // 已关闭或重新发起
+            assist.markdown = String(d.content || '');
+            assist.html = window.renderMarkdown ? renderMarkdown(assist.markdown) : '<p>' + esc(assist.markdown) + '</p>';
+            bodyEl.classList.remove('aap-loading');
+            bodyEl.innerHTML = assist.html;
+            $('#aap-status').textContent = '完成 · ' + assist.markdown.length + ' 字';
+            positionAssistPop();
+          } catch (e) {
+            if (reqId !== assist.reqId) return;
+            bodyEl.classList.remove('aap-loading');
+            bodyEl.innerHTML = '<div class="aap-placeholder error">' + esc(e.message) + '</div>';
+            $('#aap-status').textContent = '失败';
+          }
+        }
+
+        ctxActions['ai-explain'] = () => runAssist('explain');
+        ctxActions['ai-rewrite'] = () => runAssist('rewrite');
 
         await createEditor('');
 
