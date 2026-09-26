@@ -106,6 +106,30 @@
     el._t = setTimeout(() => (el.className = 'toast hidden'), 3000);
   }
 
+  // 常驻进行中提示（不自动消失），返回 finish(完成消息, 是否出错) 收尾
+  function busyToast(msg) {
+    const el = $('#toast');
+    clearTimeout(el._t);
+    el.className = 'toast busy';
+    el.innerHTML = '<span class="toast-spin"></span><span class="toast-msg"></span>';
+    el.querySelector('.toast-msg').textContent = msg;
+    let done = false;
+    return {
+      finish(finalMsg, isErr) {
+        if (done) return;
+        done = true;
+        clearTimeout(el._t);
+        if (!finalMsg) {
+          el.className = 'toast hidden';
+          return;
+        }
+        el.textContent = finalMsg;
+        el.className = 'toast ' + (isErr ? 'err' : '');
+        el._t = setTimeout(() => (el.className = 'toast hidden'), isErr ? 5000 : 3000);
+      },
+    };
+  }
+
   async function api(url, opts) {
     const res = await fetch(url, opts);
     const data = await res.json().catch(() => ({}));
@@ -225,7 +249,7 @@
     const branch = children.length > 0;
     const open = branch && (isDir ? (ui.expanded.size ? ui.expanded.has(rel) : depth < 2) : ui.expanded.has(rel));
     html +=
-      '<div class="tree-node ' + (isDir ? 'dir' : 'file') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '">' +
+      '<div class="tree-node ' + (isDir ? 'dir' : 'file') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '" draggable="true">' +
       '<span class="arrow">' + (branch ? (open ? '▾' : '▸') : '') + '</span>' +
       '<span class="icon">' + (isDir ? '📁' : '📄') + '</span>' +
       '<span>' + esc(isDir ? node.name : node.name.replace(/\.md$/i, '')) + '</span>' +
@@ -284,6 +308,238 @@
       } else {
         openNote(rel);
       }
+    });
+  }
+
+  // ---------- 目录树拖拽移动 ----------
+  let _treeDrag = null; // { rel, type }
+  let _dropEl = null;
+
+  // 计算移动方案：返回 { from, to } 或 { error }
+  function planTreeMove(fromRel, fromType, targetRel, targetType) {
+    if (!fromRel && fromRel !== '') return { error: '无效的拖动源' };
+    if (fromType === 'dir' && fromRel === '') return { error: '根目录不可移动' };
+    const s = stripDirPrefix(fromRel);
+    const t = stripDirPrefix(targetRel);
+    if ((s.dir || '') !== (t.dir || '')) return { error: '暂不支持跨笔记目录移动' };
+    const firstDir = (state.config?.notesDirs || [])[0] || '';
+    if (s.dir && s.dir !== firstDir) return { error: '暂不支持跨笔记目录移动' };
+    const name = s.rel.split('/').pop();
+    if (!name) return { error: '无效的拖动源' };
+    let targetDir;
+    if (targetType === 'dir') {
+      targetDir = t.rel;
+    } else if (/\.md$/i.test(t.rel)) {
+      targetDir = t.rel.replace(/\.[mM][dD]$/, ''); // 拖到笔记上 → 放入其子笔记目录
+    } else {
+      targetDir = relDir(t.rel); // 拖到其他文件上 → 放入其所在目录
+    }
+    const fromBase = fromType === 'file' ? s.rel.replace(/\.[mM][dD]$/, '') : s.rel;
+    if (targetDir === fromBase || targetDir.startsWith(fromBase + '/')) {
+      return { error: fromType === 'dir' ? '不能移动到自身或其子目录下' : '不能移动到该笔记自己的子笔记目录下' };
+    }
+    const to = targetDir ? targetDir + '/' + name : name;
+    if (to === s.rel) return { error: '位置未变化' };
+    return { from: s.rel, to };
+  }
+
+  function clearDropHighlight() {
+    if (_dropEl) _dropEl.classList.remove('drop-into');
+    _dropEl = null;
+  }
+
+  function markDropTarget(el) {
+    if (_dropEl === el) return;
+    clearDropHighlight();
+    _dropEl = el;
+    if (el) el.classList.add('drop-into');
+  }
+
+  function relocatePath(p, from, to) {
+    if (!p) return null;
+    if (p === from) return to;
+    if (p.startsWith(from + '/')) return to + p.slice(from.length);
+    return null;
+  }
+
+  function applyDirPrefix(rel, dir) {
+    if (!dir) return rel;
+    const dirName = dir.replace(/^.*[/\\]/, '');
+    return rel ? dirName + '/' + rel : dirName;
+  }
+
+  // 树中是否存在同名笔记（不带扩展名比较，忽略 .md 大小写）
+  function treeHasFileBase(base) {
+    let found = false;
+    (function walk(n) {
+      if (!n || found) return;
+      for (const c of n.children || []) {
+        if (c.type === 'file' && String(c.relPath).replace(/\.[mM][dD]$/, '') === base) { found = true; return; }
+        walk(c);
+      }
+    })(state.tree);
+    return found;
+  }
+
+  // 分类重命名（右键菜单）
+  async function renameFolder() {
+    const n = window._ctxNode;
+    if (!n || n.type !== 'dir') return;
+    if (!n.rel) { toast('根目录不可重命名', true); return; }
+    const oldRel = n.rel;
+    const oldName = oldRel.split('/').pop();
+    const name = prompt('重命名分类：', oldName);
+    if (name === null) return;
+    const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!clean) return;
+    if (clean === oldName) { toast('名称未变化'); return; }
+    const parent = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/')) : '';
+    const to = parent ? parent + '/' + clean : clean;
+    if (treeHasFileBase(to)) {
+      toast('已存在同名笔记「' + clean + '.md」，该分类会变成它的子笔记目录；如需嵌套请拖拽到该笔记上', true);
+      return;
+    }
+    const bt = busyToast('正在重命名：' + oldRel + ' → ' + to + ' …');
+    try {
+      await api('/api/note/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: oldRel, to }),
+      });
+      bt.finish('已重命名 → ' + to);
+      let reopen = null;
+      let dirAffected = false;
+      if (state.currentRel) {
+        const nr = relocatePath(state.currentRel, oldRel, to);
+        if (nr) { state.currentRel = nr; reopen = nr; }
+      }
+      if (state.currentDir) {
+        const nd = relocatePath(state.currentDir, oldRel, to);
+        if (nd) { state.currentDir = nd; dirAffected = true; }
+      }
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      expandNodePath(to);
+      if (reopen && !state.editing) {
+        await openNote(applyDirPrefix(reopen, state.currentNoteDir));
+      } else if (dirAffected && !reopen) {
+        await selectDir(state.currentDir);
+      }
+    } catch (e) {
+      bt.finish('重命名失败: ' + e.message, true);
+      try { await loadTree(); } catch { /* ignore */ }
+    }
+  }
+
+  let _treeMoving = false; // 移动进行中：禁用新的拖拽
+
+  async function doTreeMove(plan) {
+    if (_treeMoving) return;
+    _treeMoving = true;
+    const bt = busyToast('正在移动：' + plan.from + ' → ' + plan.to + ' …');
+    try {
+      await api('/api/note/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: plan.from, to: plan.to }),
+      });
+      let reopen = null;
+      let dirAffected = false;
+      if (state.currentRel) {
+        const nr = relocatePath(state.currentRel, plan.from, plan.to);
+        if (nr) { state.currentRel = nr; reopen = nr; }
+      }
+      if (state.currentDir) {
+        const nd = relocatePath(state.currentDir, plan.from, plan.to);
+        if (nd) { state.currentDir = nd; dirAffected = true; }
+      }
+      bt.finish('已移动 → ' + plan.to);
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      expandNodePath(plan.to);
+      if (reopen && !state.editing) {
+        await openNote(applyDirPrefix(reopen, state.currentNoteDir));
+      } else if (reopen) {
+        // 编辑中：保留编辑状态，只同步树高亮
+        $('#tree').querySelectorAll('.tree-node.active').forEach((n) => n.classList.remove('active'));
+        $('#tree').querySelector('.tree-node.file[data-rel="' + escAttr(applyDirPrefix(reopen, state.currentNoteDir)) + '"]')?.classList.add('active');
+      } else if (dirAffected) {
+        await selectDir(state.currentDir);
+      }
+    } catch (e) {
+      bt.finish('移动失败: ' + e.message, true);
+      try { await loadTree(); } catch { /* ignore */ }
+    } finally {
+      _treeMoving = false;
+    }
+  }
+
+  function bindTreeDragDrop() {
+    const treeEl = $('#tree');
+
+    // 根据事件目标判定放置目标：节点行 → 该节点；子项空白区 → 所属目录；树空白区 → 根目录
+    function dropTargetFromEvent(e) {
+      const node = e.target.closest('.tree-node');
+      if (node) return { rel: node.dataset.rel, type: node.dataset.type, el: node };
+      const box = e.target.closest('.tree-children');
+      if (box) {
+        const parentRel = box.dataset.parent;
+        return { rel: parentRel, type: 'dir', el: treeEl.querySelector('.tree-node[data-rel="' + escAttr(parentRel) + '"]') };
+      }
+      if (e.target === treeEl) {
+        return { rel: '', type: 'dir', el: treeEl.querySelector('.tree-node[data-rel=""]') };
+      }
+      return null;
+    }
+
+    treeEl.addEventListener('dragstart', (e) => {
+      const node = e.target.closest('.tree-node');
+      if (!node) return;
+      const rel = node.dataset.rel;
+      const type = node.dataset.type;
+      if (type === 'dir' && !rel) { e.preventDefault(); return; } // 根目录不可拖
+      if (_treeMoving) { e.preventDefault(); return; } // 移动进行中禁止新拖拽
+      _treeDrag = { rel, type };
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', rel); // Firefox 需要数据才会启动拖拽
+      } catch { /* ignore */ }
+      node.classList.add('dragging');
+    });
+
+    treeEl.addEventListener('dragover', (e) => {
+      if (!_treeDrag) return;
+      const target = dropTargetFromEvent(e);
+      if (!target) { clearDropHighlight(); return; }
+      const plan = planTreeMove(_treeDrag.rel, _treeDrag.type, target.rel, target.type);
+      if (plan.error) {
+        clearDropHighlight();
+        return; // 不 preventDefault → 显示禁止放置光标
+      }
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      markDropTarget(target.el);
+    });
+
+    treeEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      clearDropHighlight();
+      if (!_treeDrag || _treeMoving) { _treeDrag = null; return; }
+      const target = dropTargetFromEvent(e);
+      const drag = _treeDrag;
+      _treeDrag = null;
+      if (!target) return;
+      const plan = planTreeMove(drag.rel, drag.type, target.rel, target.type);
+      if (plan.error) { toast(plan.error, true); return; }
+      doTreeMove(plan);
+    });
+
+    const cleanup = () => {
+      treeEl.querySelectorAll('.tree-node.dragging').forEach((n) => n.classList.remove('dragging'));
+      clearDropHighlight();
+      _treeDrag = null;
+    };
+    treeEl.addEventListener('dragend', cleanup);
+    treeEl.addEventListener('dragleave', (e) => {
+      if (!treeEl.contains(e.relatedTarget)) clearDropHighlight();
     });
   }
 
@@ -500,18 +756,22 @@
         toast('文件名未变化');
         return;
       }
+      const bt = busyToast('正在重命名：' + base + ' → ' + newName + ' …');
       try {
         await api('/api/note/move', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ from: n.rel, to }),
         });
-        toast('已重命名 → ' + to);
+        bt.finish('已重命名 → ' + to);
         await Promise.all([loadTree(), loadTags(), loadStats()]);
         if (state.currentRel === n.rel) await openNote(to);
       } catch (e) {
-        toast(e.message, true);
+        bt.finish('重命名失败: ' + e.message, true);
       }
+    },
+    async 'rename-folder'() {
+      await renameFolder();
     },
     async delete() {
       const n = window._ctxNode;
@@ -547,6 +807,7 @@
           ? [
               { action: 'new-subfolder', label: '📁 新建子分类' },
               { action: 'new-note', label: '📄 新建笔记' },
+              ...(rel ? [{ action: 'rename-folder', label: '✏️ 重命名' }] : []),
               { action: 'reveal', label: '🔗 打开本地位置' },
             ]
           : [
@@ -1691,8 +1952,8 @@
           }
         }
 
-        ctxActions['ai-explain'] = () => runAssist('explain');
-        ctxActions['ai-rewrite'] = () => runAssist('rewrite');
+    ctxActions['ai-explain'] = () => runAssist('explain');
+    ctxActions['ai-rewrite'] = () => runAssist('rewrite');
 
         await createEditor('');
 
@@ -2082,15 +2343,21 @@
       $('#dialog-move').classList.add('hidden');
       return;
     }
-    await api('/api/note/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: state.currentRel, to }),
-    });
-    toast('已移动 → ' + to);
-    $('#dialog-move').classList.add('hidden');
-    await Promise.all([loadTree(), loadTags(), loadStats()]);
-    await openNote(to);
+    const from = state.currentRel;
+    const bt = busyToast('正在移动：' + from + ' → ' + to + ' …');
+    try {
+      await api('/api/note/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      });
+      bt.finish('已移动 → ' + to);
+      $('#dialog-move').classList.add('hidden');
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      await openNote(to);
+    } catch (e) {
+      bt.finish('移动失败: ' + e.message, true);
+    }
   }
 
   async function deleteNote() {
@@ -2974,6 +3241,7 @@
     applyTheme();
     bindEvents();
     bindTreeEvents();
+    bindTreeDragDrop();
     bindContextMenu();
     applyCover();
     applyAiPanelState();

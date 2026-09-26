@@ -295,6 +295,15 @@ select:focus-visible {
 .tree-node .arrow { width: 18px; text-align: center; color: var(--muted); }
 .tree-node .icon { margin-right: 4px; }
 .tree-node.active { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+.tree-node[draggable="true"] { cursor: grab; }
+.tree-node[draggable="true"]:active { cursor: grabbing; }
+.tree-node.dragging { opacity: .45; }
+.tree-node.drop-into {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+}
+.tree-node.drop-into:hover { background: var(--accent-bg); }
 .tree-node .count { margin-left: auto; font-size: 11px; color: var(--faint); padding-right: 4px; }
 .tree-children { border-left: 1px dashed var(--border); margin-left: 8px; padding-left: 6px; }
 .tree-children.collapsed { display: none; }
@@ -938,6 +947,14 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
   font-size: 13px;
 }
 .toast.err { background: var(--danger); color: #fff; }
+.toast.busy { display: flex; align-items: center; gap: 9px; }
+.toast-spin {
+  width: 12px; height: 12px; flex: none;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
 
 /* Context menu */
 .ctx-menu {

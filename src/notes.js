@@ -61,8 +61,17 @@ async function moveNote(notesDir, from, to) {
   const fromAbs = safeResolve(notesDir, from);
   const toAbs = safeResolve(notesDir, to);
   if (fromAbs === toAbs) throw new Error('目标路径相同');
+  // 禁止移动到自身或其子目录下（目录：A → A/x；笔记：A.md → A/...）
+  const fromRel = toPosix(from);
+  const toRel = toPosix(to);
+  const fromBase = fromRel.replace(/\.[mM][dD]$/, '');
+  if (toRel === fromBase || toRel.startsWith(fromBase + '/')) throw new Error('不能移动到自身或其子目录下');
+  // 目标位置存在同名笔记（to 与 xxx.md 并存会意外变成其子笔记目录）
+  if (!/\.[mM][dD]$/.test(toRel) && fs.existsSync(toAbs + '.md')) {
+    throw new Error('目标位置已存在同名笔记（' + path.basename(toAbs) + '.md），请先处理同名冲突');
+  }
   await fsp.mkdir(path.dirname(toAbs), { recursive: true });
-  if (fs.existsSync(toAbs)) throw new Error('目标文件已存在');
+  if (fs.existsSync(toAbs)) throw new Error('目标位置已存在同名文件或目录');
   await fsp.rename(fromAbs, toAbs);
   // 同名子笔记目录随主笔记一起移动
   if (/\.[mM][dD]$/.test(fromAbs)) {
