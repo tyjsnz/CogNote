@@ -1,5 +1,20 @@
 # 开发日志
 
+## 2026-09-29
+
+### 修复：公式保存后预览显示原始 HTML（`<span data-inline-math ...>`）
+- 根因：`tiptap-markdown` 对无 markdown 序列化规格的节点回落到 HTML 序列化，行内/块级公式节点被存成 `<span data-inline-math latex="...">`，预览渲染器不识别
+- `InlineMath` / `BlockMath` 增加 `storage.markdown.serialize`：保存时还原为 `$...$` 与独立 `$$...$$` 块（行内公式换行折叠为空格）
+- 增加 `parse.updateDOM`：加载 markdown 时把文本中的 `$..$` / `$$..$$` 转为公式节点（跳过 code/pre），编辑器内可直接渲染存量 `$..$` 公式；粘贴 `$..$` 文本、AI 插入内容同路生效
+- 预览渲染器兼容旧版公式 HTML 节点（在 `\\` 转义处理前提取，保留 latex 原样），**存量被污染的笔记无需手工修改即可正常预览**；在编辑器中打开并保存一次会自动还原为 `$...$`
+- e2e：混合公式预览/编辑/保存 round-trip、旧版 span 预览兼容、文件内容断言 5/5 通过
+
+### 修复：重启后全文搜索 500（`Cannot read properties of undefined (reading 'replace')`）
+- 根因：索引缓存不持久化 `body` 全文，重启加载后文档缺 `body`，搜索生成摘要时对 `undefined` 调 `.replace`
+- `Indexer.ensureBody(relPath)`：正文缺失时按需回读（复用 `_parse` 保持 frontmatter 剥离一致），失败降级 `''` 并缓存
+- 搜索 top 结果生成摘要前回读正文；`_snippet` 对 `body`/`headings` 加兜底
+- AI 端点（归类/扩展/摘要/批量归类/quiz/ask）调用前同样回读，避免重启后 AI 拿到空正文静默降级
+
 ## 2026-09-26
 
 ### 新增：选区 AI 助手（编辑器）

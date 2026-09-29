@@ -1532,6 +1532,61 @@
     if (state.currentRel) openNote(state.currentRel);
   }
 
+  // ---------- 数学公式：$..$ / $$..$$ 文本 → 公式节点（编辑器加载 markdown 时） ----------
+  function splitMathParts(src) {
+    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g;
+    let last = 0;
+    let m;
+    let parts = null;
+    while ((m = re.exec(src))) {
+      if (!parts) parts = [];
+      if (m.index > last) parts.push({ text: src.slice(last, m.index) });
+      if (m[1] !== undefined) parts.push({ math: m[1].trim(), block: true });
+      else parts.push({ math: m[2].trim(), block: false });
+      last = re.lastIndex;
+    }
+    if (!parts) return null;
+    if (last < src.length) parts.push({ text: src.slice(last) });
+    return parts;
+  }
+
+  function convertMathTextNodes(root) {
+    if (!root || !document.createTreeWalker) return;
+    const skipTags = { CODE: 1, PRE: 1, SCRIPT: 1, STYLE: 1 };
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const v = node.nodeValue;
+        if (!v || v.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
+        let el = node.parentElement;
+        while (el && el !== root) {
+          if (skipTags[el.tagName] || el.hasAttribute('data-inline-math') || el.hasAttribute('data-block-math')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          el = el.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const targets = [];
+    while (walker.nextNode()) targets.push(walker.currentNode);
+    for (const textNode of targets) {
+      const parts = splitMathParts(textNode.nodeValue);
+      if (!parts) continue;
+      const frag = document.createDocumentFragment();
+      for (const part of parts) {
+        if (part.math) {
+          const el = document.createElement(part.block ? 'div' : 'span');
+          el.setAttribute(part.block ? 'data-block-math' : 'data-inline-math', '');
+          el.setAttribute('latex', part.math);
+          frag.appendChild(el);
+        } else {
+          frag.appendChild(document.createTextNode(part.text));
+        }
+      }
+      if (textNode.parentNode) textNode.parentNode.replaceChild(frag, textNode);
+    }
+  }
+
   function ensureVditor() {
     if (vditor) return Promise.resolve(vditor);
     return new Promise(async (resolve, reject) => {
@@ -1565,6 +1620,21 @@
           inline: true,
           atom: true,
           addAttributes() { return { latex: { default: '' } }; },
+          addStorage() {
+            return {
+              markdown: {
+                // 序列化为 $...$（preview 与外部编辑器均可识别），避免回落到 HTML span
+                serialize(state, node) {
+                  const latex = String(node.attrs.latex || '').replace(/\s*\n\s*/g, ' ').trim();
+                  state.text('$' + latex + '$', false);
+                },
+                parse: {
+                  // markdown 解析后把文本中的 $..$ / $$..$$ 转为公式节点
+                  updateDOM: convertMathTextNodes,
+                },
+              },
+            };
+          },
           parseHTML() { return [{ tag: 'span[data-inline-math]' }]; },
           renderHTML({ HTMLAttributes }) {
             return ['span', { 'data-inline-math': '', ...HTMLAttributes }];
@@ -1608,6 +1678,24 @@
           group: 'block',
           atom: true,
           addAttributes() { return { latex: { default: '' } }; },
+          addStorage() {
+            return {
+              markdown: {
+                // 序列化为独立 $$...$$ 块
+                serialize(state, node) {
+                  const latex = String(node.attrs.latex || '');
+                  state.write('$$\n');
+                  state.text(latex, false);
+                  state.ensureNewLine();
+                  state.write('$$');
+                  state.closeBlock(node);
+                },
+                parse: {
+                  updateDOM: convertMathTextNodes,
+                },
+              },
+            };
+          },
           parseHTML() { return [{ tag: 'div[data-block-math]' }]; },
           renderHTML({ HTMLAttributes }) {
             return ['div', { 'data-block-math': '', ...HTMLAttributes }];

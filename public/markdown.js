@@ -32,16 +32,35 @@
     return '<code class="math-fallback">' + escapeHtml(latex) + '</code>';
   }
 
+  function unescapeAttr(s) {
+    return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  }
+
   function inline(src) {
     let s = src;
+    // 数学公式优先提取，防止 HTML 转义破坏 < > 等字符
+    const mathCache = [];
+
+    // 兼容旧版编辑器保存的公式 HTML 节点（须在 \\ 转义处理之前，保留 latex 属性原样）
+    s = s.replace(/<div\b[^>]*\bdata-block-math\b[^>]*><\/div>/g, (m) => {
+      const am = m.match(/\blatex="([^"]*)"/);
+      if (!am || !am[1]) return m;
+      mathCache.push(renderBlockMath(unescapeAttr(am[1])));
+      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+    });
+    s = s.replace(/<span\b[^>]*\bdata-inline-math\b[^>]*><\/span>/g, (m) => {
+      const am = m.match(/\blatex="([^"]*)"/);
+      if (!am || !am[1]) return m;
+      mathCache.push(renderInlineMath(unescapeAttr(am[1])));
+      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+    });
+
     // 处理 Markdown 转义序列（Vditor 将 $$ 存为 \$ 和 \\）
     // \\  → \  先于数学公式 regex，保证 \rightarrow 等 LaTeX 命令正确
     s = s.replace(/\\\\/g, '\\');
     // \$  → $  使 Vditor 保存的 \$...\$ 能被数学公式 regex 正确匹配
     s = s.replace(/\\\$/g, '$');
 
-    // 数学公式优先提取，防止 HTML 转义破坏 < > 等字符
-    const mathCache = [];
     s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => {
       mathCache.push(renderBlockMath(m));
       return '\u0000KX' + (mathCache.length - 1) + '\u0000';
