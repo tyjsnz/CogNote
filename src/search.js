@@ -76,6 +76,8 @@ class SearchEngine {
 
     const out = top.map((r) => {
       const doc = this.indexer.docs.get(r.relPath);
+      // 缓存索引重启加载后不含正文，生成摘要前按需回读
+      this.indexer.ensureBody(r.relPath);
       return {
         relPath: r.relPath,
         title: doc.title,
@@ -84,14 +86,14 @@ class SearchEngine {
         size: doc.size,
         mtimeMs: doc.mtimeMs,
         snippet: this._snippet(doc, rawQuery),
-        headings: doc.headings.slice(0, 8),
+        headings: (doc.headings || []).slice(0, 8),
       };
     });
     return { query: rawQuery, total: out.length, results: out };
   }
 
   _snippet(doc, rawQuery) {
-    const text = doc.body.replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`>|~]/g, ' ').replace(/\s+/g, ' ');
+    const text = (doc.body || '').replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`>|~]/g, ' ').replace(/\s+/g, ' ');
     const q = rawQuery.trim().toLowerCase();
     let idx = -1;
     if (q) idx = text.toLowerCase().indexOf(q);

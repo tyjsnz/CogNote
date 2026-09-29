@@ -236,6 +236,21 @@ class Indexer {
     return this.docs.get(relPath);
   }
 
+  // 从缓存加载的索引不含全文（save 不持久化 body），此处按需回读并缓存
+  ensureBody(relPath) {
+    const doc = this.docs.get(relPath);
+    if (!doc) return null;
+    if (doc.body != null) return doc.body;
+    try {
+      const parsed = this._parse(path.join(this.notesDir, relPath));
+      if (parsed) doc.body = parsed.body;
+    } catch (err) {
+      this.errors.push(`${relPath}: ${err.message}`);
+    }
+    if (doc.body == null) doc.body = '';
+    return doc.body;
+  }
+
   add(absPath) {
     const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
     return { relPath, doc: this._indexFile(absPath) };

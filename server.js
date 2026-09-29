@@ -252,6 +252,7 @@ function ensureDoc(rel) {
     e.status = 404;
     throw e;
   }
+  indexer.ensureBody(doc.relPath); // 缓存索引可能不含正文，AI 调用前回读
   return doc;
 }
 
@@ -679,7 +680,9 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const docs = [...indexer.docs.values()];
     if (!docs.length) throw new Error('Cognote 中没有笔记');
     const maxNotes = Math.min(docs.length, body.maxNotes || 100);
-    const results = await ai.batchClassify(docs.slice(0, maxNotes));
+    const picked = docs.slice(0, maxNotes);
+    for (const d of picked) indexer.ensureBody(d.relPath);
+    const results = await ai.batchClassify(picked);
     // 生成 Markdown 报告
     let report = '# 批量归类建议报告\n\n';
     report += `分析了 ${results.length} 篇笔记的分类建议。\n\n`;
@@ -709,6 +712,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const rels = body.rels || [];
     const docs = rels.map((r) => indexer.get(notesApi.toPosix(r))).filter(Boolean);
     if (!docs.length) throw new Error('请先选择包含笔记的分类');
+    for (const d of docs) indexer.ensureBody(d.relPath);
     const markdown = await ai.quiz(docs, { count: body.count || 5 });
     return sendJson(res, 200, { ok: true, markdown });
   }
@@ -719,6 +723,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const docs = rels.map((r) => indexer.get(notesApi.toPosix(r))).filter(Boolean);
     if (!docs.length) throw new Error('没有可参考的笔记');
     if (!body.question?.trim()) throw new Error('问题不能为空');
+    for (const d of docs) indexer.ensureBody(d.relPath);
     const answer = await ai.quickChat(docs, body.question);
     return sendJson(res, 200, { ok: true, answer });
   }
