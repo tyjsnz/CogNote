@@ -72,11 +72,55 @@ function extractInternalLinks(body, currentRelPath) {
 class Indexer {
   constructor(notesDir, opts = {}) {
     this.notesDir = path.resolve(notesDir);
+    // 实际参与索引的根目录（多目录索引开启时为全部目录，否则仅第一个）
+    this.scope = Array.isArray(opts.scope) && opts.scope.length
+      ? opts.scope.map((d) => path.resolve(d))
+      : [this.notesDir];
+    // 去掉被其他根目录包含的子目录，避免重复索引
+    this.scope = this.scope.filter(
+      (d, i, arr) => !arr.some((o, j) => j !== i && d.startsWith(o + path.sep))
+    );
+    if (!this.scope.length) this.scope = [this.notesDir];
+    // 索引 key 是否带目录名前缀（与目录树 relPath 保持一致）
+    this.prefixActive = this.scope.length > 1;
     this.ignoreDirs = new Set(opts.ignoreDirs || ['.git', 'node_modules', 'img', 'images', '.obsidian']);
     this.maxSizeBytes = (opts.maxFileSizeKb || 2048) * 1024;
-    this.docs = new Map();   // relPath -> doc
-    this.index = new Map();  // token  -> Map(relPath -> {t,g,h,b})
+    this.docs = new Map();   // key -> doc
+    this.index = new Map();  // token  -> Map(key -> {t,g,h,b})
     this.errors = [];
+  }
+
+  // 索引 key <-> 绝对路径；不在索引范围内的文件返回 null（不参与索引）
+  keyForAbs(absPath) {
+    const norm = path.resolve(absPath);
+    for (const dir of this.scope) {
+      if (norm !== dir && norm.startsWith(dir + path.sep)) {
+        const rel = path.relative(dir, norm).split(path.sep).join('/');
+        return this.prefixActive ? path.basename(dir) + '/' + rel : rel;
+      }
+    }
+    return null;
+  }
+
+  // (笔记目录, 相对路径) -> 索引 key
+  keyFor(noteDir, relPath) {
+    const rel = String(relPath || '').split(path.sep).join('/');
+    if (!this.prefixActive) return rel;
+    const dir = this.scope.find((d) => d === path.resolve(noteDir)) || path.resolve(noteDir);
+    return rel ? path.basename(dir) + '/' + rel : path.basename(dir);
+  }
+
+  // 索引 key -> 绝对路径
+  absFor(key) {
+    const k = String(key).split(path.sep).join('/');
+    if (this.prefixActive) {
+      const i = k.indexOf('/');
+      const name = i === -1 ? k : k.slice(0, i);
+      const rest = i === -1 ? '' : k.slice(i + 1);
+      const dir = this.scope.find((d) => path.basename(d) === name);
+      if (dir) return path.join(dir, rest);
+    }
+    return path.join(this.notesDir, k);
   }
 
   isIgnoredDir(dirName) {
@@ -97,7 +141,7 @@ class Indexer {
 
   _walk() {
     const out = [];
-    const stack = [this.notesDir];
+    const stack = [...this.scope];
     const visited = new Set();
     while (stack.length) {
       const dir = stack.pop();
@@ -142,7 +186,8 @@ class Indexer {
   }
 
   _parse(absPath) {
-    const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
+    const relPath = this.keyForAbs(absPath);
+    if (!relPath) return null;
     let content;
     try {
       content = fs.readFileSync(absPath, 'utf8');
@@ -242,7 +287,7 @@ class Indexer {
     if (!doc) return null;
     if (doc.body != null) return doc.body;
     try {
-      const parsed = this._parse(path.join(this.notesDir, relPath));
+      const parsed = this._parse(this.absFor(relPath));
       if (parsed) doc.body = parsed.body;
     } catch (err) {
       this.errors.push(`${relPath}: ${err.message}`);
@@ -252,13 +297,14 @@ class Indexer {
   }
 
   add(absPath) {
-    const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
+    const relPath = this.keyForAbs(absPath);
+    if (!relPath) return { relPath: null, doc: null };
     return { relPath, doc: this._indexFile(absPath) };
   }
 
   remove(absPath) {
-    const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
-    this._removeDoc(relPath);
+    const relPath = this.keyForAbs(absPath);
+    if (relPath) this._removeDoc(relPath);
   }
 
   rename(fromRel, toAbs) {
@@ -284,6 +330,8 @@ class Indexer {
     const data = {
       version: 1,
       savedAt: Date.now(),
+      // 索引的根目录集合：与当前配置不一致时调用方应放弃缓存并全量重建
+      scope: this.scope,
       docs: {},
       index: {},
     };
@@ -341,7 +389,14 @@ class Indexer {
       for (const [token, entries] of Object.entries(data.index)) {
         this.index.set(token, new Map(entries));
       }
-      return { ok: true, docs: this.docs.size, tokens: this.index.size, savedAt: data.savedAt };
+      return {
+        ok: true,
+        docs: this.docs.size,
+        tokens: this.index.size,
+        savedAt: data.savedAt,
+        // 缓存建立时索引的根目录集合；旧版本索引没有该字段，视为 [notesDir]
+        scope: Array.isArray(data.scope) ? data.scope : null,
+      };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -354,7 +409,7 @@ class Indexer {
     let added = 0, updated = 0, removed = 0;
     // 检查已有文件是否变更或被删除
     for (const [relPath, doc] of this.docs) {
-      const absPath = path.join(this.notesDir, relPath.split('/').join(path.sep));
+      const absPath = this.absFor(relPath);
       if (!fs.existsSync(absPath)) {
         this._removeDoc(relPath);
         removed++;
@@ -370,7 +425,7 @@ class Indexer {
     }
     // 索引新增文件
     for (const absPath of files) {
-      const relPath = path.relative(this.notesDir, absPath).split(path.sep).join('/');
+      const relPath = this.keyForAbs(absPath);
       currentPaths.add(relPath);
       if (!this.docs.has(relPath)) {
         this._indexFile(absPath);
@@ -389,7 +444,11 @@ class Indexer {
         nodeSet.add(relPath);
         nodes.push({ id: relPath, title: doc.title, tags: doc.tags });
       }
-      for (const target of (doc.links || [])) {
+      // 链接是相对笔记自身目录解析的，多目录模式下需补回目录名前缀
+      const i = relPath.indexOf('/');
+      const prefix = this.prefixActive && i > 0 ? relPath.slice(0, i + 1) : '';
+      for (const rawTarget of (doc.links || [])) {
+        const target = prefix + rawTarget;
         if (!nodeSet.has(target)) {
           nodeSet.add(target);
           const targetDoc = this.docs.get(target);

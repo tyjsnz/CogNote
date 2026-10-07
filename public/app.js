@@ -13,6 +13,7 @@
     searchMode: false,
     activeTag: '',
     prevRel: null,        // 新建/编辑取消时返回的原笔记
+    prevNoteDir: '',      // prevRel 所属的笔记目录
     reviewMode: false,    // 复习模式：打开笔记后显示评分面板
   };
 
@@ -368,6 +369,12 @@
     return rel ? dirName + '/' + rel : dirName;
   }
 
+  // state.currentRel 是剥离前缀后的相对路径，openNote 需要带前缀的树 rel
+  function openCurrentNote() {
+    if (state.currentRel) return openNote(applyDirPrefix(state.currentRel, state.currentNoteDir));
+    return Promise.resolve();
+  }
+
   // 树中是否存在同名笔记（不带扩展名比较，忽略 .md 大小写）
   function treeHasFileBase(base) {
     let found = false;
@@ -387,14 +394,17 @@
     if (!n || n.type !== 'dir') return;
     if (!n.rel) { toast('根目录不可重命名', true); return; }
     const oldRel = n.rel;
-    const oldName = oldRel.split('/').pop();
+    const { rel: oldBase, dir: noteDir } = stripDirPrefix(oldRel);
+    if (!oldBase) { toast('笔记根目录不可重命名（请在设置中修改）', true); return; }
+    const oldName = oldBase.split('/').pop();
     const name = prompt('重命名分类：', oldName);
     if (name === null) return;
     const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!clean) return;
     if (clean === oldName) { toast('名称未变化'); return; }
-    const parent = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/')) : '';
-    const to = parent ? parent + '/' + clean : clean;
+    const parent = oldBase.includes('/') ? oldBase.slice(0, oldBase.lastIndexOf('/')) : '';
+    const toBase = parent ? parent + '/' + clean : clean;
+    const to = applyDirPrefix(toBase, noteDir);
     if (treeHasFileBase(to)) {
       toast('已存在同名笔记「' + clean + '.md」，该分类会变成它的子笔记目录；如需嵌套请拖拽到该笔记上', true);
       return;
@@ -404,13 +414,13 @@
       await api('/api/note/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: oldRel, to }),
+        body: JSON.stringify({ from: oldBase, to: toBase, dir: noteDir }),
       });
       bt.finish('已重命名 → ' + to);
       let reopen = null;
       let dirAffected = false;
       if (state.currentRel) {
-        const nr = relocatePath(state.currentRel, oldRel, to);
+        const nr = relocatePath(state.currentRel, oldBase, toBase);
         if (nr) { state.currentRel = nr; reopen = nr; }
       }
       if (state.currentDir) {
@@ -436,11 +446,14 @@
     if (_treeMoving) return;
     _treeMoving = true;
     const bt = busyToast('正在移动：' + plan.from + ' → ' + plan.to + ' …');
+    const noteDir = stripDirPrefix(plan.from).dir;
+    const fromTree = applyDirPrefix(plan.from, noteDir);
+    const toTree = applyDirPrefix(plan.to, noteDir);
     try {
       await api('/api/note/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: plan.from, to: plan.to }),
+        body: JSON.stringify({ from: plan.from, to: plan.to, dir: noteDir }),
       });
       let reopen = null;
       let dirAffected = false;
@@ -449,12 +462,12 @@
         if (nr) { state.currentRel = nr; reopen = nr; }
       }
       if (state.currentDir) {
-        const nd = relocatePath(state.currentDir, plan.from, plan.to);
+        const nd = relocatePath(state.currentDir, fromTree, toTree);
         if (nd) { state.currentDir = nd; dirAffected = true; }
       }
-      bt.finish('已移动 → ' + plan.to);
+      bt.finish('已移动 → ' + toTree);
       await Promise.all([loadTree(), loadTags(), loadStats()]);
-      expandNodePath(plan.to);
+      expandNodePath(toTree);
       if (reopen && !state.editing) {
         await openNote(applyDirPrefix(reopen, state.currentNoteDir));
       } else if (reopen) {
@@ -588,13 +601,14 @@
       if (!name) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
-      const rel = n.rel ? n.rel + '/' + clean : clean;
+      const { rel: parentRel, dir } = stripDirPrefix(n.rel || '');
+      const rel = parentRel ? parentRel + '/' + clean : clean;
       await api('/api/folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel }),
+        body: JSON.stringify({ rel, dir }),
       });
-      toast('已创建分类: ' + rel);
+      toast('已创建分类: ' + applyDirPrefix(rel, dir));
       await reloadTree();
       expandDir(n.rel);
     },
@@ -606,7 +620,7 @@
       await api('/api/folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: clean }),
+        body: JSON.stringify({ rel: clean, dir: '' }),
       });
       toast('已创建根分类: ' + clean);
       await reloadTree();
@@ -616,10 +630,11 @@
       if (!n || n.type !== 'dir') return;
       if (!confirm('确定删除空分类？\n' + n.rel)) return;
       try {
+        const { rel, dir } = stripDirPrefix(n.rel);
         await api('/api/folder', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rel: n.rel }),
+          body: JSON.stringify({ rel, dir }),
         });
         toast('已删除分类: ' + n.rel);
         if (state.currentDir === n.rel) state.currentDir = relDir(n.rel);
@@ -644,22 +659,25 @@
     async 'new-sub-note'() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
-      const base = n.rel.replace(/\.md$/i, '');
+      const { rel: nRel, dir } = stripDirPrefix(n.rel);
+      const base = nRel.replace(/\.md$/i, '');
       const name = prompt('输入子笔记名称：', '子笔记');
       if (name === null) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
       const rel = base + '/' + clean + '.md';
+      const treeRel = applyDirPrefix(rel, dir);
       await api('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel, content: '# ' + clean + '\n\n' }),
+        body: JSON.stringify({ rel, content: '# ' + clean + '\n\n', dir }),
       });
-      toast('已创建子笔记: ' + rel);
+      toast('已创建子笔记: ' + treeRel);
       await reloadTree();
-      expandNodePath(rel);
+      expandNodePath(treeRel);
       state.currentRel = rel;
-      await openNote(rel);
+      state.currentNoteDir = dir;
+      await openNote(treeRel);
       openEditor();
     },
     move() {
@@ -743,29 +761,31 @@
     async rename() {
       const n = window._ctxNode;
       if (!n || n.type !== 'file') return;
-      const oldName = n.rel.split('/').pop();
-      const dir = n.rel.includes('/') ? n.rel.slice(0, n.rel.lastIndexOf('/')) : '';
+      const { rel: oldRel, dir: noteDir } = stripDirPrefix(n.rel);
+      const oldName = oldRel.split('/').pop();
+      const parentDir = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/')) : '';
       const base = oldName.replace(/\.md$/i, '');
       const name = prompt('重命名文件：', base);
       if (name === null) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
       const newName = /\.md$/i.test(clean) ? clean : clean + '.md';
-      const to = dir ? dir + '/' + newName : newName;
-      if (to === n.rel) {
+      const to = parentDir ? parentDir + '/' + newName : newName;
+      if (to === oldRel) {
         toast('文件名未变化');
         return;
       }
+      const treeTo = applyDirPrefix(to, noteDir);
       const bt = busyToast('正在重命名：' + base + ' → ' + newName + ' …');
       try {
         await api('/api/note/move', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: n.rel, to }),
+          body: JSON.stringify({ from: oldRel, to, dir: noteDir }),
         });
-        bt.finish('已重命名 → ' + to);
+        bt.finish('已重命名 → ' + treeTo);
         await Promise.all([loadTree(), loadTags(), loadStats()]);
-        if (state.currentRel === n.rel) await openNote(to);
+        if (state.currentRel === oldRel) await openNote(treeTo);
       } catch (e) {
         bt.finish('重命名失败: ' + e.message, true);
       }
@@ -781,11 +801,11 @@
         ? '确定删除该笔记？\n' + n.rel + '\n\n其下还有 ' + subNum + ' 个子笔记，将连同其子笔记目录一并删除！'
         : '确定删除该笔记？\n' + n.rel;
       if (!confirm(msg)) return;
-      const { rel: delRel } = stripDirPrefix(n.rel);
+      const { rel: delRel, dir: delDir } = stripDirPrefix(n.rel);
       await api('/api/note/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: delRel }),
+        body: JSON.stringify({ rel: delRel, dir: delDir }),
       });
       toast(subNum > 0 ? '已删除（含子笔记）' : '已删除');
       await reloadTree();
@@ -901,6 +921,8 @@
   function stripDirPrefix(treeRel) {
     if (!treeRel || !state.config?.notesDirs?.length) return { rel: treeRel, dir: '' };
     const dirs = state.config.notesDirs || [];
+    // 只有多目录模式下 /api/tree 才会给节点加目录名前缀，单目录模式没有前缀可剥离
+    if (dirs.length < 2) return { rel: treeRel, dir: '' };
     for (const dir of dirs) {
       const dirName = dir.replace(/^.*[/\\]/, '');
       if (treeRel === dirName) return { rel: '', dir };
@@ -1089,6 +1111,8 @@
   function selectDir(dirRel) {
     state.currentRel = null;
     state.prevRel = null;
+    state.prevNoteDir = '';
+    state.currentNoteDir = stripDirPrefix(dirRel || '').dir;
     $('#search-results').classList.add('hidden');
     $('#editor').classList.add('hidden');
     $('#viewer').classList.remove('hidden');
@@ -1513,10 +1537,10 @@
       await api('/api/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: state.currentRel, content }),
+        body: JSON.stringify({ rel: state.currentRel, content, dir: state.currentNoteDir || '' }),
       });
       toast('已保存: ' + state.currentRel);
-      await openNote(state.currentRel);
+      await openCurrentNote();
     } catch (e) {
       toast('保存失败: ' + e.message, true);
     }
@@ -1529,7 +1553,7 @@
       monacoEditor.dispose();
       monacoEditor = null;
     }
-    if (state.currentRel) openNote(state.currentRel);
+    if (state.currentRel) openCurrentNote();
   }
 
   // ---------- 数学公式：$..$ / $$..$$ 文本 → 公式节点（编辑器加载 markdown 时） ----------
@@ -2211,6 +2235,8 @@
           $('#edit-title').value = fm.title || '';
           $('#edit-tags').value = (fm.tags || []).join(', ');
           vditor.setValue(fm.body);
+        }).catch((e) => {
+          toast('读取笔记失败: ' + e.message, true);
         });
       } else {
         $('#edit-title').value = '';
@@ -2249,16 +2275,22 @@
 
     let oldContent = '';
     let newRel;
+    let targetDir = state.currentNoteDir || '';
     if (state.currentRel) {
       newRel = state.currentRel;
       state.prevRel = null;
       try {
-        const oldResp = await api('/api/note?rel=' + encodeURIComponent(state.currentRel));
+        const oldResp = await api('/api/note?rel=' + encodeURIComponent(state.currentRel) + (state.currentNoteDir ? '&dir=' + encodeURIComponent(state.currentNoteDir) : ''));
         if (oldResp && oldResp.content) oldContent = oldResp.content;
       } catch {}
     } else {
       const name = (title || '未命名笔记').replace(/[\\/:*?"<>|]/g, '_');
-      newRel = uniqueRel(state.currentDir || '', name);
+      const { rel: dirRel, dir: noteDir } = stripDirPrefix(state.currentDir || '');
+      // uniqueRel 的判重基于树节点 rel（多目录下带前缀），所以先用带前缀的 rel 判重
+      const treeRel = uniqueRel(applyDirPrefix(dirRel, noteDir), name);
+      const stripped = stripDirPrefix(treeRel);
+      newRel = stripped.rel;
+      targetDir = stripped.dir;
     }
 
     // 代码文件直接保存，不处理 frontmatter
@@ -2267,11 +2299,11 @@
       await api('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: state.currentRel, content: body }),
+        body: JSON.stringify({ rel: state.currentRel, content: body, dir: state.currentNoteDir || '' }),
       });
       toast('已保存: ' + state.currentRel);
       await Promise.all([loadTree(), loadTags(), loadStats()]);
-      await openNote(state.currentRel);
+      await openNote(applyDirPrefix(state.currentRel, state.currentNoteDir));
       return;
     }
 
@@ -2286,12 +2318,13 @@
     await api('/api/note', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rel: newRel, content, dir: state.currentNoteDir || '' }),
+      body: JSON.stringify({ rel: newRel, content, dir: targetDir }),
     });
     cleanupRemovedImages(oldContent, content).catch(() => {});
-    toast('已保存: ' + newRel);
+    const savedTreeRel = applyDirPrefix(newRel, targetDir);
+    toast('已保存: ' + savedTreeRel);
     await Promise.all([loadTree(), loadTags(), loadStats()]);
-    await openNote(newRel);
+    await openNote(savedTreeRel);
   }
 
   function cancelEdit() {
@@ -2303,11 +2336,13 @@
       monacoEditor = null;
     }
     if (state.currentRel) {
-      openNote(state.currentRel);
+      openNote(applyDirPrefix(state.currentRel, state.currentNoteDir));
     } else if (state.prevRel) {
       const p = state.prevRel;
+      const pd = state.prevNoteDir || '';
       state.prevRel = null;
-      openNote(p);
+      state.prevNoteDir = '';
+      openNote(applyDirPrefix(p, pd));
     } else {
       selectDir(state.currentDir || '');
     }
@@ -2316,7 +2351,9 @@
   // ---------- new / move / delete ----------
   async function newNote() {
     state.prevRel = state.currentRel || state.prevRel; // 记住之前在看的笔记，取消时返回
+    state.prevNoteDir = state.currentRel ? (state.currentNoteDir || '') : (state.prevNoteDir || '');
     state.currentRel = null;                            // 新建模式：保存时创建新文件
+    state.currentNoteDir = stripDirPrefix(state.currentDir || '').dir; // 与目标目录保持一致
     state.editing = true;
     $('#search-results').classList.add('hidden');
     $('#editor').classList.remove('hidden');
@@ -2394,14 +2431,16 @@
     if (!name) return;
     const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!clean) return;
-    const rel = parent ? parent + '/' + clean : clean;
+    const { rel: parentRel, dir } = stripDirPrefix(parent);
+    const rel = parentRel ? parentRel + '/' + clean : clean;
+    const treeRel = applyDirPrefix(rel, dir);
     await api('/api/folder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rel }),
+      body: JSON.stringify({ rel, dir }),
     });
-    toast('已创建分类: ' + rel);
-    await renderMoveDialog(rel);
+    toast('已创建分类: ' + treeRel);
+    await renderMoveDialog(treeRel);
     await loadTree();
   }
 
@@ -2424,25 +2463,32 @@
   async function confirmMove() {
     if (!state.currentRel) return;
     const target = window._moveTarget || '';
+    const fromDir = state.currentNoteDir || '';
+    const t = stripDirPrefix(target);
+    if ((t.dir || '') !== fromDir) {
+      toast('暂不支持跨笔记目录移动', true);
+      return;
+    }
     const name = state.currentRel.split('/').pop();
-    const to = target ? target + '/' + name : name;
+    const to = t.rel ? t.rel + '/' + name : name;
     if (to === state.currentRel) {
       toast('位置未变化');
       $('#dialog-move').classList.add('hidden');
       return;
     }
     const from = state.currentRel;
-    const bt = busyToast('正在移动：' + from + ' → ' + to + ' …');
+    const treeTo = applyDirPrefix(to, fromDir);
+    const bt = busyToast('正在移动：' + from + ' → ' + treeTo + ' …');
     try {
       await api('/api/note/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from, to }),
+        body: JSON.stringify({ from, to, dir: fromDir }),
       });
-      bt.finish('已移动 → ' + to);
+      bt.finish('已移动 → ' + treeTo);
       $('#dialog-move').classList.add('hidden');
       await Promise.all([loadTree(), loadTags(), loadStats()]);
-      await openNote(to);
+      await openNote(treeTo);
     } catch (e) {
       bt.finish('移动失败: ' + e.message, true);
     }
@@ -2454,7 +2500,7 @@
     await api('/api/note/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rel: state.currentRel }),
+      body: JSON.stringify({ rel: state.currentRel, dir: state.currentNoteDir || '' }),
     });
     toast('已删除');
     state.currentRel = null;
@@ -2583,10 +2629,10 @@
       await api('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rel: state.currentRel, content: newContent }),
+        body: JSON.stringify({ rel: state.currentRel, content: newContent, dir: state.currentNoteDir || '' }),
       });
       await Promise.all([loadTree(), loadTags(), loadStats()]);
-      await openNote(state.currentRel);
+      await openCurrentNote();
       box.className = 'ai-out done';
       box.innerHTML = '✅ 已应用智能归类结果（摘要 / 标签 / 关键词）。';
       toast('已应用智能归类结果');
@@ -2722,22 +2768,22 @@
         await api('/api/note', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rel: state.currentRel, content: newContent }),
+          body: JSON.stringify({ rel: state.currentRel, content: newContent, dir: state.currentNoteDir || '' }),
         });
         box.className = 'ai-out done';
         box.innerHTML = '✅ 已追加到当前笔记';
         toast('已追加到当前笔记');
-        await openNote(state.currentRel);
+        await openCurrentNote();
       } else {
         const base = state.currentRel.replace(/\.md$/i, '');
         const newRel = base + '·扩展.md';
         await api('/api/note', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rel: newRel, content: text }),
+          body: JSON.stringify({ rel: newRel, content: text, dir: state.currentNoteDir || '' }),
         });
         box.className = 'ai-out done';
-        box.innerHTML = '✅ 已生成新笔记：' + esc(newRel);
+        box.innerHTML = '✅ 已生成新笔记：' + esc(applyDirPrefix(newRel, state.currentNoteDir || ''));
         await Promise.all([loadTree(), loadStats()]);
       }
     } catch (e) {
@@ -2747,21 +2793,23 @@
 
   async function createAiNote(rel, content) {
     await loadTree();
+    const noteDir = state.currentNoteDir || '';
     let target = rel;
     let n = 2;
     const dir = relDir(rel);
     const stem = rel.split('/').pop().replace(/\.md$/i, '');
-    while (relExists(target)) {
+    // relExists 基于树节点 rel（多目录下带前缀），判重时需补回前缀
+    while (relExists(applyDirPrefix(target, noteDir))) {
       target = (dir ? dir + '/' : '') + stem + '(' + n + ').md';
       n++;
     }
     await api('/api/note', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rel: target, content }),
+      body: JSON.stringify({ rel: target, content, dir: noteDir }),
     });
     await Promise.all([loadTree(), loadStats()]);
-    return target;
+    return applyDirPrefix(target, noteDir);
   }
 
   async function aiSummary() {
@@ -2891,10 +2939,10 @@
         await api('/api/note', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rel: state.currentRel, content: newContent }),
+          body: JSON.stringify({ rel: state.currentRel, content: newContent, dir: state.currentNoteDir || '' }),
         });
         await Promise.all([loadTree(), loadTags(), loadStats()]);
-        await openNote(state.currentRel);
+        await openCurrentNote();
         toast('已插入到当前笔记');
       } else if (act === 'new') {
         const newRel = await createAiNote(state.currentRel.replace(/\.md$/i, '') + '·问答.md', md);
@@ -3017,6 +3065,7 @@
     $('#cfg-reviewdirs').value = reviewDirs.join('\n');
     const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments');
     $('#cfg-ignore-dirs').value = ignoreDirs.join(', ');
+    $('#cfg-multi-dir-index').checked = !!state.config.multiDirIndex;
     const provider = state.config.ai?.provider || 'deepseek';
     $('#cfg-ai-provider').value = provider;
     $('#cfg-apikey').value = '';
@@ -3052,6 +3101,7 @@
     const body = {
       notesDirs,
       reviewDirs,
+      multiDirIndex: $('#cfg-multi-dir-index').checked,
       index: { ignoreDirs },
       ai: aiConfig,
     };
@@ -3154,7 +3204,7 @@
     $('#btn-clear-search').addEventListener('click', () => {
       $('#search-input').value = '';
       clearSearch();
-      if (state.currentRel) openNote(state.currentRel);
+      if (state.currentRel) openCurrentNote();
       else selectDir(state.currentDir || '');
     });
     $('#btn-rescan').addEventListener('click', async () => {

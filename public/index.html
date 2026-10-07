@@ -258,6 +258,15 @@
       <label>扫描过滤目录（逗号分隔，_attachments 固定过滤）
         <input id="cfg-ignore-dirs" type="text" placeholder=".git, node_modules, img, images, .obsidian">
       </label>
+      <label class="check-row">
+        <input id="cfg-multi-dir-index" type="checkbox">
+        <span class="check-row-title">多目录索引</span>
+        <span class="check-row-hint">
+          关闭（默认）：只扫描并索引「笔记目录」里的第一个目录，搜索 / AI 问答 / 复习计划都只覆盖它。<br>
+          开启：有几个笔记目录就索引几个，搜索结果会带上目录名前缀以便区分。<br>
+          切换开关或增删笔记目录后会自动重建索引，被删除目录的索引条目会一并从索引表中移除。目录较多时开启会略微增加启动扫描耗时。
+        </span>
+      </label>
       <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
       <label>AI 服务商
         <select id="cfg-ai-provider" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;">

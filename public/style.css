@@ -887,6 +887,23 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 .modal-box h3 { margin-bottom: 10px; letter-spacing: -.01em; }
 .modal-box.modal-wide { width: 720px; max-width: 94vw; }
 .modal-box label { display: block; margin: 12px 0; font-size: 13px; }
+/* 复选框行：勾选框 + 标题一行，说明文字缩进到标题下方 */
+.modal-box label.check-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 8px;
+  cursor: pointer;
+}
+.modal-box label.check-row input[type="checkbox"] { width: auto; margin-top: 0; }
+.modal-box label.check-row .check-row-title { font-weight: 500; }
+.modal-box label.check-row .check-row-hint {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  font-weight: 400;
+}
 .modal-box input, .modal-box select, .modal-box textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-s);
   margin-top: 4px; font-size: 13px; background: var(--panel); color: var(--text); font-family: inherit;

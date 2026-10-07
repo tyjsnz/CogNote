@@ -26,6 +26,32 @@ class ReviewManager {
   constructor(dataDir) {
     this.filePath = path.join(dataDir, 'review.json');
     this.data = this._load();
+    if (!this.data.notes) this.data.notes = {};
+  }
+
+  // 索引 key 形态（是否带目录名前缀）变化时，同步迁移复习数据的 key，
+  // 否则「复习计划」列表（key 来自索引）会与已记录的复习状态对不上。
+  // dirNames 为全部笔记目录名（与目录树前缀一致）。
+  setKeyMode(prefixActive, dirNames) {
+    const mode = prefixActive ? 1 : 0;
+    if ((this.data.keyMode || 0) === mode) return { changed: false, count: Object.keys(this.data.notes).length };
+    const names = (Array.isArray(dirNames) ? dirNames : []).filter(Boolean);
+    const first = names[0] || '';
+    const notes = {};
+    for (const [key, val] of Object.entries(this.data.notes)) {
+      let k = key;
+      if (mode === 1) {
+        // 已带任意笔记目录名前缀的保持不变，否则补上第一个目录的前缀
+        if (first && !names.includes(k.split('/')[0])) k = first + '/' + k;
+      } else if (first && k.startsWith(first + '/')) {
+        k = k.slice(first.length + 1);
+      }
+      notes[k] = val;
+    }
+    this.data.notes = notes;
+    this.data.keyMode = mode;
+    this._save();
+    return { changed: true, count: Object.keys(notes).length };
   }
 
   _load() {

@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = {
   notesDir: '',
   notesDirs: [],
   reviewDirs: [],
+  // 多目录索引：关闭时只索引第一个笔记目录，开启时索引全部笔记目录
+  multiDirIndex: false,
   port: 8570,
   host: '127.0.0.1',
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
@@ -62,6 +64,7 @@ function loadConfig() {
     }
     // 确保 reviewDirs 存在
     if (!cfg.reviewDirs) cfg.reviewDirs = [];
+    cfg.multiDirIndex = !!cfg.multiDirIndex;
     return cfg;
   } catch (err) {
     const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -72,6 +75,7 @@ function loadConfig() {
     }
     // 确保 reviewDirs 存在
     if (!cfg.reviewDirs) cfg.reviewDirs = [];
+    cfg.multiDirIndex = !!cfg.multiDirIndex;
     return cfg;
   }
 }
@@ -100,6 +104,28 @@ const aiCfg = config.ai || config.deepseek;
 let ai = new DeepSeekAI(aiCfg);
 let review = null;
 
+// 本次实际参与索引的根目录：关闭「多目录索引」时只取第一个
+function indexScopeFor(dirs) {
+  const scope = dirs.slice(0, 1);
+  if (config.multiDirIndex) scope.push(...dirs.slice(1));
+  return [...new Set(scope.map((d) => path.resolve(d)))];
+}
+
+function scopeEquals(a, b) {
+  return Array.isArray(a) && a.length === b.length && a.every((d, i) => d === b[i]);
+}
+
+// 复习数据的 key 必须与索引 key 保持同一形态，索引范围变化时同步迁移
+function initReview() {
+  review = new ReviewManager(REVIEW_DIR);
+  // 用「当前索引范围 + 所有已配置笔记目录」的目录名做 key 迁移，
+  // 这样即使某个目录刚被删除，它的历史 key 也能在切回单目录模式时正确去前缀
+  const names = new Set(indexer.scope.map((d) => path.basename(d)));
+  for (const d of config.notesDirs || []) if (d) names.add(path.basename(d));
+  const r = review.setKeyMode(indexer.prefixActive, [...names]);
+  if (r.changed) console.log(`[Cognote] 复习数据 key 已同步: ${r.count} 条`);
+}
+
 function rebuildIndexer(incremental = false) {
   // 支持多目录：优先使用 notesDirs 数组，兼容旧 notesDir
   let dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
@@ -114,24 +140,29 @@ function rebuildIndexer(incremental = false) {
   }
   // 向后兼容：notesDir 设为第一个目录
   config.notesDir = dirs[0];
-  indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs });
-  // v1.1: 尝试加载已保存的索引
+  const scope = indexScopeFor(dirs);
+  indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs, scope });
+  console.log(`[Cognote] 索引范围: ${indexer.scope.length} 个目录${indexer.prefixActive ? '（key 带目录前缀）' : ''}`);
+  // v1.1: 尝试加载已保存的索引（索引范围不一致时放弃缓存，改为全量重建）
   if (incremental && fs.existsSync(INDEX_PATH)) {
     const loadResult = indexer.load(INDEX_PATH);
-    if (loadResult.ok) {
+    if (loadResult.ok && scopeEquals(loadResult.scope || [indexer.notesDir], indexer.scope)) {
       console.log(`[Cognote] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
       const info = indexer.incrementalScan();
       search = new SearchEngine(indexer);
-      review = new ReviewManager(REVIEW_DIR);
+      initReview();
       // 增量更新后保存
       indexer.save(INDEX_PATH);
       return info;
     }
+    if (loadResult.ok) {
+      console.log('[Cognote] 索引范围已变化，忽略缓存并全量重建索引');
+    }
   }
-  // 全量扫描
+  // 全量扫描（新 Indexer 的 docs 为空，被移除目录的条目自然从索引表中消失）
   const info = indexer.scan();
   search = new SearchEngine(indexer);
-  review = new ReviewManager(REVIEW_DIR);
+  initReview();
   // 扫描后保存索引
   try { indexer.save(INDEX_PATH); } catch {}
   return info;
@@ -152,6 +183,11 @@ function saveConfig(next) {
   // 根据 AI 服务商配置初始化 AI
   const aiCfg = config.ai || config.deepseek;
   ai = new DeepSeekAI(aiCfg);
+}
+
+// 解析请求指定的笔记目录（多目录模式）；未指定或目录不存在时回退到第一个目录
+function resolveNoteDir(dir) {
+  return dir && fs.existsSync(dir) ? dir : config.notesDir;
 }
 
 function publicConfig() {
@@ -245,8 +281,23 @@ function readBody(req) {
   });
 }
 
+// 把外部传入的路径解析成索引 key。调用方可能传的是相对路径（不带前缀），
+// 也可能是目录树 relPath（多目录时带目录名前缀），这里按「哪个候选存在于索引」判定。
+function toIndexKey(rel) {
+  const r = notesApi.toPosix(rel);
+  if (!r) return r;
+  const names = [...new Set(indexer.scope.map((d) => path.basename(d)))];
+  const cands = [r];
+  for (const n of names) {
+    cands.push(n + '/' + r);
+    if (r.startsWith(n + '/')) cands.push(r.slice(n.length + 1));
+  }
+  for (const c of cands) if (indexer.get(c)) return c;
+  return r;
+}
+
 function ensureDoc(rel) {
-  const doc = indexer.get(notesApi.toPosix(rel));
+  const doc = indexer.get(toIndexKey(rel));
   if (!doc) {
     const e = new Error(`笔记不存在: ${rel}`);
     e.status = 404;
@@ -322,6 +373,7 @@ async function handleApi(pathname, req, res, url) {
     }
     if (body.port) config.port = body.port;
     if (body.host) config.host = body.host;
+    if (typeof body.multiDirIndex === 'boolean') config.multiDirIndex = body.multiDirIndex;
     if (body.deepseek) config.deepseek = { ...config.deepseek, ...body.deepseek };
     if (body.ai) config.ai = { ...config.ai, ...body.ai };
     if (body.index) {
@@ -330,7 +382,17 @@ async function handleApi(pathname, req, res, url) {
         config.index.ignoreDirs.push('_attachments');
       }
     }
-    saveConfig({ notesDir: config.notesDir, notesDirs: config.notesDirs, reviewDirs: config.reviewDirs, port: config.port, host: config.host, deepseek: config.deepseek, ai: config.ai, index: config.index });
+    saveConfig({
+      notesDir: config.notesDir,
+      notesDirs: config.notesDirs,
+      reviewDirs: config.reviewDirs,
+      multiDirIndex: config.multiDirIndex,
+      port: config.port,
+      host: config.host,
+      deepseek: config.deepseek,
+      ai: config.ai,
+      index: config.index,
+    });
     rebuildIndexer();
     return sendJson(res, 200, publicConfig());
   }
@@ -394,9 +456,9 @@ async function handleApi(pathname, req, res, url) {
     const dir = url.searchParams.get('dir'); // 可选：指定笔记目录
     if (!rel) throw new Error('缺少 rel 参数');
     // 多目录模式：用指定目录，否则用 notesDir
-    const noteDir = dir && fs.existsSync(dir) ? dir : config.notesDir;
+    const noteDir = resolveNoteDir(dir);
     const { content, size, mtimeMs } = await notesApi.readNote(noteDir, rel);
-    const doc = indexer.get(notesApi.toPosix(rel));
+    const doc = indexer.get(indexer.keyFor(noteDir, rel));
     return sendJson(res, 200, {
       relPath: notesApi.toPosix(rel),
       content,
@@ -410,7 +472,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
     if (typeof body.content !== 'string') throw new Error('缺少 content');
-    const noteDir = body.dir && fs.existsSync(body.dir) ? body.dir : config.notesDir;
+    const noteDir = resolveNoteDir(body.dir);
     await notesApi.writeNote(noteDir, body.rel, body.content);
     indexer.add(path.join(noteDir, notesApi.fromPosix(body.rel)));
     return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
@@ -419,20 +481,21 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/note/move' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.from || !body.to) throw new Error('缺少 from/to');
+    const noteDir = resolveNoteDir(body.dir);
     // 移动前记录旧的子笔记相对路径，用于移动后重建索引
     const fromBase = String(body.from).replace(/\.[mM][dD]$/, '');
     const toBase = String(body.to).replace(/\.[mM][dD]$/, '');
-    const hadSub = fs.existsSync(path.join(config.notesDir, notesApi.fromPosix(fromBase)));
-    const oldSubRels = hadSub ? await notesApi.walkMdRel(config.notesDir, fromBase) : [];
-    const r = await notesApi.moveNote(config.notesDir, body.from, body.to);
+    const hadSub = fs.existsSync(path.join(noteDir, notesApi.fromPosix(fromBase)));
+    const oldSubRels = hadSub ? await notesApi.walkMdRel(noteDir, fromBase) : [];
+    const r = await notesApi.moveNote(noteDir, body.from, body.to);
     if (hadSub) {
-      indexer.remove(path.join(config.notesDir, notesApi.fromPosix(r.from)));
-      for (const rel of oldSubRels) indexer.remove(path.join(config.notesDir, notesApi.fromPosix(fromBase + '/' + rel)));
-      indexer.add(path.join(config.notesDir, notesApi.fromPosix(r.to)));
-      const newSubRels = await notesApi.walkMdRel(config.notesDir, toBase);
-      for (const rel of newSubRels) indexer.add(path.join(config.notesDir, notesApi.fromPosix(toBase + '/' + rel)));
+      indexer.remove(path.join(noteDir, notesApi.fromPosix(r.from)));
+      for (const rel of oldSubRels) indexer.remove(path.join(noteDir, notesApi.fromPosix(fromBase + '/' + rel)));
+      indexer.add(path.join(noteDir, notesApi.fromPosix(r.to)));
+      const newSubRels = await notesApi.walkMdRel(noteDir, toBase);
+      for (const rel of newSubRels) indexer.add(path.join(noteDir, notesApi.fromPosix(toBase + '/' + rel)));
     } else {
-      indexer.rename(notesApi.toPosix(body.from), path.join(config.notesDir, notesApi.fromPosix(body.to)));
+      indexer.rename(indexer.keyFor(noteDir, body.from), path.join(noteDir, notesApi.fromPosix(body.to)));
     }
     try { indexer.save(INDEX_PATH); } catch {}
     return sendJson(res, 200, { ok: true, ...r });
@@ -441,14 +504,15 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/note/delete' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
+    const noteDir = resolveNoteDir(body.dir);
     const rel = notesApi.toPosix(body.rel);
     const base = rel.replace(/\.[mM][dD]$/, '');
-    const hadSub = fs.existsSync(path.join(config.notesDir, notesApi.fromPosix(base)));
-    const oldSubRels = hadSub ? await notesApi.walkMdRel(config.notesDir, base) : [];
-    await notesApi.deleteNote(config.notesDir, body.rel);
-    indexer.remove(path.join(config.notesDir, notesApi.fromPosix(rel)));
+    const hadSub = fs.existsSync(path.join(noteDir, notesApi.fromPosix(base)));
+    const oldSubRels = hadSub ? await notesApi.walkMdRel(noteDir, base) : [];
+    await notesApi.deleteNote(noteDir, body.rel);
+    indexer.remove(path.join(noteDir, notesApi.fromPosix(rel)));
     if (hadSub) {
-      for (const r of oldSubRels) indexer.remove(path.join(config.notesDir, notesApi.fromPosix(base + '/' + r)));
+      for (const r of oldSubRels) indexer.remove(path.join(noteDir, notesApi.fromPosix(base + '/' + r)));
     }
     try { indexer.save(INDEX_PATH); } catch {}
     return sendJson(res, 200, { ok: true });
@@ -457,7 +521,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/folder' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少路径');
-    const abs = notesApi.safeResolve(config.notesDir, body.rel);
+    const abs = notesApi.safeResolve(resolveNoteDir(body.dir), body.rel);
     await fsp.mkdir(abs, { recursive: true });
     return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
   }
@@ -465,8 +529,9 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/folder' && req.method === 'DELETE') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少路径');
-    const abs = notesApi.safeResolve(config.notesDir, body.rel);
-    if (abs === path.resolve(config.notesDir)) throw new Error('不能删除根目录');
+    const noteDir = resolveNoteDir(body.dir);
+    const abs = notesApi.safeResolve(noteDir, body.rel);
+    if (abs === path.resolve(noteDir)) throw new Error('不能删除根目录');
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error('目录不存在: ' + body.rel);
     // 拒绝删除「子笔记目录」（同目录下存在同名 .md）
     if (fs.existsSync(path.join(path.dirname(abs), path.basename(abs) + '.md'))) {
@@ -710,7 +775,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/quiz' && req.method === 'POST') {
     const body = await readBody(req);
     const rels = body.rels || [];
-    const docs = rels.map((r) => indexer.get(notesApi.toPosix(r))).filter(Boolean);
+    const docs = rels.map((r) => indexer.get(toIndexKey(r))).filter(Boolean);
     if (!docs.length) throw new Error('请先选择包含笔记的分类');
     for (const d of docs) indexer.ensureBody(d.relPath);
     const markdown = await ai.quiz(docs, { count: body.count || 5 });
@@ -720,7 +785,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/ask' && req.method === 'POST') {
     const body = await readBody(req);
     const rels = body.rels || [];
-    const docs = rels.map((r) => indexer.get(notesApi.toPosix(r))).filter(Boolean);
+    const docs = rels.map((r) => indexer.get(toIndexKey(r))).filter(Boolean);
     if (!docs.length) throw new Error('没有可参考的笔记');
     if (!body.question?.trim()) throw new Error('问题不能为空');
     for (const d of docs) indexer.ensureBody(d.relPath);
@@ -749,9 +814,14 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const reviewDirs = config.reviewDirs || [];
     let filteredRels = allRels;
     if (reviewDirs.length > 0) {
-      // 如果配置了 reviewDirs，只包含这些目录下的笔记
-      filteredRels = allRels.filter(rel => {
-        return reviewDirs.some(dir => rel.startsWith(dir + '/') || rel === dir);
+      // 如果配置了 reviewDirs，只包含这些目录下的笔记（兼容绝对路径与相对路径写法）
+      const trimEnd = (s) => s.replace(/[\\/]+$/, '');
+      filteredRels = allRels.filter((rel) => {
+        const abs = indexer.absFor(rel);
+        return reviewDirs.some((dir) => {
+          const d = String(dir);
+          return abs === d || abs.startsWith(trimEnd(d) + path.sep) || rel === d || rel.startsWith(trimEnd(d) + '/');
+        });
       });
     }
     const due = review.getDueNotes(filteredRels);
@@ -767,7 +837,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
     const quality = Math.max(0, Math.min(5, parseInt(body.quality) || 3));
-    const state = review.markReviewed(notesApi.toPosix(body.rel), quality);
+    const state = review.markReviewed(toIndexKey(body.rel), quality);
     return sendJson(res, 200, { ok: true, state });
   }
 
@@ -775,7 +845,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/review/enroll' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
-    const rel = notesApi.toPosix(body.rel);
+    const rel = toIndexKey(body.rel);
     const state = review.enrollNote(rel);
     return sendJson(res, 200, { ok: true, state });
   }
@@ -784,7 +854,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/review/unenroll' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少 rel');
-    const rel = notesApi.toPosix(body.rel);
+    const rel = toIndexKey(body.rel);
     const state = review.unenrollNote(rel);
     return sendJson(res, 200, { ok: true, state });
   }
@@ -793,7 +863,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/review/status' && req.method === 'GET') {
     const rel = url.searchParams.get('rel');
     if (!rel) throw new Error('缺少 rel 参数');
-    const enrolled = review.isEnrolled(notesApi.toPosix(rel));
+    const enrolled = review.isEnrolled(toIndexKey(rel));
     return sendJson(res, 200, { ok: true, enrolled });
   }
 
