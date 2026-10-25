@@ -3212,7 +3212,10 @@
   }
 
   function openSettings() {
-    const dirs = state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []);
+    const cloudDir = state.config?.cloud?.dir || '';
+    const dirs = (state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []))
+      // 云端目录由「云端同步」自动管理，不在笔记目录列表中展示
+      .filter((d) => !cloudDir || d !== cloudDir);
     $('#cfg-notesdirs').value = dirs.join('\n');
     const reviewDirs = state.config.reviewDirs || [];
     $('#cfg-reviewdirs').value = reviewDirs.join('\n');
@@ -3242,7 +3245,7 @@
   async function saveSettings() {
     const dirsText = $('#cfg-notesdirs').value.trim();
     const notesDirs = dirsText.split(/\n/).map((s) => s.trim()).filter(Boolean);
-    if (!notesDirs.length) return toast('请至少填写一个笔记目录', true);
+    if (!notesDirs.length && !state.config?.cloud?.enabled) return toast('请至少填写一个笔记目录', true);
     const reviewDirsText = $('#cfg-reviewdirs').value.trim();
     const reviewDirs = reviewDirsText.split(/\n/).map((s) => s.trim()).filter(Boolean);
     const ignoreDirs = $('#cfg-ignore-dirs').value

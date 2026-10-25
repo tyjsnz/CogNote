@@ -1,13 +1,13 @@
 {
   "notes": {
-    "Agent智能体开发提示词文档.md": {
+    "开发文档/Agent智能体开发提示词文档.md": {
       "interval": 1,
       "repetition": 1,
       "nextReview": 1788485491942,
       "lastReview": 1788399091942,
       "reviewCount": 1
     },
-    "算法/卡尔曼滤波算法：研究与部署.md": {
+    "开发文档/算法/卡尔曼滤波算法：研究与部署.md": {
       "interval": 0,
       "repetition": 0,
       "nextReview": 0,
@@ -15,7 +15,7 @@
       "reviewCount": 0,
       "enrolled": true
     },
-    "算法/匈牙利算法.md": {
+    "开发文档/算法/匈牙利算法.md": {
       "interval": 0,
       "repetition": 0,
       "nextReview": 0,
@@ -23,5 +23,6 @@
       "reviewCount": 0,
       "enrolled": true
     }
-  }
+  },
+  "keyMode": 1
 }
