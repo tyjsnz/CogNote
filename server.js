@@ -8,6 +8,7 @@ const { SearchEngine } = require('./src/search');
 const { DeepSeekAI, AIError } = require('./src/ai');
 const notesApi = require('./src/notes');
 const { ReviewManager } = require('./src/review');
+const { CloudSync, SYNC_STATE_DIR } = require('./src/cloudsync');
 
 const ROOT = __dirname;
 
@@ -31,7 +32,9 @@ const DEFAULT_CONFIG = {
   host: '127.0.0.1',
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
   ai: { provider: 'deepseek', apiKey: '', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', timeoutMs: 120000 },
-  index: { maxFileSizeKb: 2048, ignoreDirs: ['.git', 'node_modules', 'img', 'images', '.obsidian', '.trash', '.vscode', '_attachments'] },
+  index: { maxFileSizeKb: 2048, ignoreDirs: ['.git', 'node_modules', 'img', 'images', '.obsidian', '.trash', '.vscode', '_attachments', '.cognote-sync'] },
+  // 云端同步：dir 留空时自动使用 <EXE_DIR>/云端同步
+  cloud: { enabled: false, url: '', token: '', dir: '', intervalSec: 60 },
 };
 
 // AI 服务商默认配置
@@ -57,7 +60,9 @@ function loadConfig() {
     cfg.deepseek = { ...DEFAULT_CONFIG.deepseek, ...(cfg.deepseek || {}) };
     cfg.ai = { ...DEFAULT_CONFIG.ai, ...(cfg.ai || {}) };
     cfg.index = { ...DEFAULT_CONFIG.index, ...(cfg.index || {}) };
+    cfg.cloud = { ...DEFAULT_CONFIG.cloud, ...(cfg.cloud || {}) };
     if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
+    if (!cfg.index.ignoreDirs.includes(SYNC_STATE_DIR)) cfg.index.ignoreDirs.push(SYNC_STATE_DIR);
     // 兼容旧 notesDir → notesDirs
     if (!cfg.notesDirs || !cfg.notesDirs.length) {
       cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
@@ -68,8 +73,9 @@ function loadConfig() {
     return cfg;
   } catch (err) {
     const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-    const cfg = { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, ai: { ...DEFAULT_CONFIG.ai, ...(base.ai || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) } };
+    const cfg = { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, ai: { ...DEFAULT_CONFIG.ai, ...(base.ai || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) }, cloud: { ...DEFAULT_CONFIG.cloud, ...(base.cloud || {}) } };
     if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
+    if (!cfg.index.ignoreDirs.includes(SYNC_STATE_DIR)) cfg.index.ignoreDirs.push(SYNC_STATE_DIR);
     if (!cfg.notesDirs || !cfg.notesDirs.length) {
       cfg.notesDirs = cfg.notesDir ? [cfg.notesDir] : [];
     }
@@ -104,10 +110,77 @@ const aiCfg = config.ai || config.deepseek;
 let ai = new DeepSeekAI(aiCfg);
 let review = null;
 
-// 本次实际参与索引的根目录：关闭「多目录索引」时只取第一个
+// ---------- 云端同步 ----------
+// 云端笔记目录：默认 <程序目录>/云端同步，可在设置中指定
+function cloudDirPath() {
+  const raw = (config.cloud && config.cloud.dir) || '';
+  return raw ? path.resolve(raw) : path.join(EXE_DIR, '云端同步');
+}
+
+function cloudEnabled() {
+  return !!(config.cloud && config.cloud.enabled);
+}
+
+// 运行时生效的笔记目录：用户配置的目录 + 云端目录（云端目录始终参与索引）
+function effectiveDirs() {
+  let dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
+  if (!dirs.length && config.notesDir && fs.existsSync(config.notesDir)) dirs = [config.notesDir];
+  if (cloudEnabled()) {
+    const cd = cloudDirPath();
+    try { fs.mkdirSync(cd, { recursive: true }); } catch {}
+    if (fs.existsSync(cd)) dirs.push(cd);
+  }
+  return [...new Set(dirs)];
+}
+
+function isCloudPath(p) {
+  if (!p) return false;
+  const cd = cloudDirPath();
+  const abs = path.resolve(p);
+  return abs === cd || abs.startsWith(cd + path.sep);
+}
+
+const cloudSync = new CloudSync({
+  getCloudDir: cloudDirPath,
+  getConfig: () => config.cloud || {},
+  onApplied: (summary) => {
+    // 同步落地的文件需要更新索引，保证搜索/AI 立刻可用
+    let touched = false;
+    for (const rel of summary.changedPaths || []) {
+      const abs = path.join(cloudDirPath(), ...rel.split('/'));
+      if (fs.existsSync(abs)) { indexer.add(abs); touched = true; }
+    }
+    for (const rel of summary.removedPaths || []) {
+      indexer.remove(path.join(cloudDirPath(), ...rel.split('/')));
+      touched = true;
+    }
+    if (touched) {
+      search = new SearchEngine(indexer);
+      try { indexer.save(INDEX_PATH); } catch {}
+    }
+  },
+});
+
+function cloudPublicConfig() {
+  const c = config.cloud || {};
+  return {
+    enabled: !!c.enabled,
+    url: c.url || '',
+    dir: cloudDirPath(),
+    intervalSec: Number(c.intervalSec) || 60,
+    tokenSet: !!c.token,
+  };
+}
+
+
+// 本次实际参与索引的根目录：关闭「多目录索引」时只取第一个（云端目录始终包含）
 function indexScopeFor(dirs) {
   const scope = dirs.slice(0, 1);
   if (config.multiDirIndex) scope.push(...dirs.slice(1));
+  if (cloudEnabled()) {
+    const cd = cloudDirPath();
+    if (!scope.includes(cd)) scope.push(cd);
+  }
   return [...new Set(scope.map((d) => path.resolve(d)))];
 }
 
@@ -127,11 +200,10 @@ function initReview() {
 }
 
 function rebuildIndexer(incremental = false) {
-  // 支持多目录：优先使用 notesDirs 数组，兼容旧 notesDir
-  let dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
-  if (!dirs.length && config.notesDir && fs.existsSync(config.notesDir)) {
-    dirs = [config.notesDir];
-  }
+  // 支持多目录：优先使用 notesDirs 数组，兼容旧 notesDir；云端目录自动追加
+  let dirs = effectiveDirs();
+  // 过滤掉被其他根目录包含的子目录，避免重复索引
+  dirs = dirs.filter((d, i, arr) => !arr.some((o, j) => j !== i && path.resolve(d).startsWith(path.resolve(o) + path.sep)));
   if (!dirs.length) {
     // 没有有效目录：用临时空目录保证服务可启动
     const scanDir = path.join(EXE_DIR, '.empty-notes');
@@ -156,7 +228,22 @@ function rebuildIndexer(incremental = false) {
       return info;
     }
     if (loadResult.ok) {
+      // 索引范围变化：若只是新增目录（常见于启用云端同步），迁移 key 前缀后继续用缓存，
+      // 避免重读整个笔记库（NAS / 云盘目录下可能非常慢）
+      const oldScope = loadResult.scope || [indexer.notesDir];
+      const addOnly = oldScope.every((d) => indexer.scope.some((s) => path.resolve(s) === path.resolve(d)));
+      const removeOnly = indexer.scope.every((s) => oldScope.some((d) => path.resolve(d) === path.resolve(s)));
+      if ((addOnly || removeOnly) && indexer.rekeyForScope(oldScope)) {
+        console.log('[Cognote] 索引范围已扩展，已迁移缓存索引的前缀（无需全量重读）');
+        const info = indexer.incrementalScan();
+        search = new SearchEngine(indexer);
+        initReview();
+        indexer.save(INDEX_PATH);
+        return info;
+      }
       console.log('[Cognote] 索引范围已变化，忽略缓存并全量重建索引');
+      // load() 已把旧文档读入内存，必须重建 Indexer 丢弃它们，否则旧 key 会残留
+      indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs, scope });
     }
   }
   // 全量扫描（新 Indexer 的 docs 为空，被移除目录的条目自然从索引表中消失）
@@ -174,6 +261,7 @@ function saveConfig(next) {
   if (next.deepseek) config.deepseek = { ...(loadConfig().deepseek || config.deepseek), ...(next.deepseek || {}) };
   if (next.ai) config.ai = { ...(loadConfig().ai || config.ai), ...(next.ai || {}) };
   if (next.index) config.index = { ...(loadConfig().index || config.index), ...(next.index || {}) };
+  if (next.cloud) config.cloud = { ...(loadConfig().cloud || config.cloud), ...(next.cloud || {}) };
   // _attachments 始终过滤
   if (config.index?.ignoreDirs && !config.index.ignoreDirs.includes('_attachments')) {
     config.index.ignoreDirs.push('_attachments');
@@ -194,11 +282,17 @@ function publicConfig() {
   const c = JSON.parse(JSON.stringify(config));
   if (c.deepseek) delete c.deepseek.apiKey;
   if (c.ai) delete c.ai.apiKey;
-  // 确保 notesDirs 存在
+  // 确保 notesDirs 存在；云端目录也返回给前端（用于目录名前缀识别）
   if (!c.notesDirs) c.notesDirs = c.notesDir ? [c.notesDir] : [];
+  if (cloudEnabled()) {
+    const cd = cloudDirPath();
+    if (!c.notesDirs.some((d) => path.resolve(d) === cd)) c.notesDirs.push(cd);
+  }
   // 确保 reviewDirs 存在
   if (!c.reviewDirs) c.reviewDirs = [];
-  return { ...c, aiConfigured: ai.isConfigured() };
+  // 云端同步：不返回 token，只返回是否已设置
+  delete c.cloud;
+  return { ...c, aiConfigured: ai.isConfigured(), cloud: cloudPublicConfig() };
 }
 
 // ---------- static ----------
@@ -296,6 +390,14 @@ function toIndexKey(rel) {
   return r;
 }
 
+// 本地变更后调度云端同步（仅当落在云端目录内时）
+function touchCloud(...paths) {
+  if (!cloudEnabled()) return;
+  for (const p of paths) {
+    if (p && isCloudPath(p)) { cloudSync.scheduleSoon(); return; }
+  }
+}
+
 function ensureDoc(rel) {
   const doc = indexer.get(toIndexKey(rel));
   if (!doc) {
@@ -311,6 +413,84 @@ function ensureDoc(rel) {
 async function handleApi(pathname, req, res, url) {
   if (pathname === '/api/config' && req.method === 'GET') {
     return sendJson(res, 200, publicConfig());
+  }
+
+  if (pathname === '/api/cloud/status' && req.method === 'GET') {
+    return sendJson(res, 200, { ok: true, ...cloudSync.status() });
+  }
+
+  // 保存云端同步配置（enabled/url/token/dir/intervalSec）；test=true 时仅测试连接不保存
+  if (pathname === '/api/cloud/config' && req.method === 'POST') {
+    const body = await readBody(req);
+    const prev = { ...(config.cloud || {}) };
+    const next = { ...prev };
+    if (typeof body.enabled === 'boolean') next.enabled = body.enabled;
+    if (typeof body.url === 'string') next.url = body.url.trim().replace(/\/+$/, '');
+    if (typeof body.token === 'string' && body.token.trim()) next.token = body.token.trim();
+    if (typeof body.clearToken === 'boolean' && body.clearToken) next.token = '';
+    if (typeof body.dir === 'string') next.dir = body.dir.trim();
+    if (body.intervalSec != null) next.intervalSec = Math.max(15, parseInt(body.intervalSec, 10) || 60);
+
+    const probeCfg = { enabled: true, url: next.url, token: next.token };
+
+    // 仅测试连接：不保存任何配置
+    if (body.test === true) {
+      if (!probeCfg.url) throw new Error('请先填写云端服务器地址');
+      if (!probeCfg.token) throw new Error('请先填写云端访问 Token');
+      const probe = new CloudSync({ getCloudDir: cloudDirPath, getConfig: () => probeCfg });
+      try {
+        const ping = await probe.ping();
+        return sendJson(res, 200, { ok: true, ping });
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: '连接云端失败: ' + e.message });
+      }
+    }
+
+    // 目录变更校验：必须是可创建/可写目录
+    if (next.dir && next.dir !== prev.dir && !fs.existsSync(next.dir)) {
+      try { fs.mkdirSync(next.dir, { recursive: true }); } catch (e) {
+        throw new Error(`云端同步目录无法创建: ${next.dir} (${e.message})`);
+      }
+    }
+
+    // 启用前后先验证连通性，失败则不保存
+    let ping = null;
+    if (next.enabled && !prev.enabled) {
+      if (!next.url) throw new Error('启用云端同步前请填写服务器地址');
+      if (!next.token) throw new Error('启用云端同步前请填写 Token');
+      const probe = new CloudSync({ getCloudDir: cloudDirPath, getConfig: () => probeCfg });
+      try {
+        ping = await probe.ping();
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: '连接云端失败: ' + e.message });
+      }
+    }
+
+    config.cloud = next;
+    saveConfig({ cloud: next });
+    // 启用后自动创建目录并重建索引，加入云端目录
+    if (next.enabled) {
+      try { fs.mkdirSync(cloudDirPath(), { recursive: true }); } catch {}
+    }
+    rebuildIndexer();
+    cloudSync.startTimer();
+    if (next.enabled && next.url && next.token) cloudSync.scheduleSoon(500);
+    return sendJson(res, 200, { ok: true, ping, cloud: cloudPublicConfig() });
+  }
+
+  // 立即同步
+  if (pathname === '/api/cloud/sync' && req.method === 'POST') {
+    if (!cloudEnabled()) throw new Error('云端同步未启用');
+    try {
+      const summary = await cloudSync.syncNow();
+      if (summary.changedPaths?.length || summary.removedPaths?.length) {
+        // 让前端刷新目录树
+        return sendJson(res, 200, { ok: true, summary, status: cloudSync.status(), changed: true });
+      }
+      return sendJson(res, 200, { ok: true, summary, status: cloudSync.status(), changed: false });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: e.message, status: cloudSync.status() });
+    }
   }
 
   // 获取 AI 服务商可用模型列表
@@ -381,6 +561,16 @@ async function handleApi(pathname, req, res, url) {
       if (config.index.ignoreDirs && !config.index.ignoreDirs.includes('_attachments')) {
         config.index.ignoreDirs.push('_attachments');
       }
+      if (config.index.ignoreDirs && !config.index.ignoreDirs.includes(SYNC_STATE_DIR)) {
+        config.index.ignoreDirs.push(SYNC_STATE_DIR);
+      }
+    }
+    // 云端目录不写入用户配置的 notesDirs（由云端同步自动管理）
+    config.notesDirs = (config.notesDirs || []).filter((d) => !isCloudPath(d));
+    config.notesDir = config.notesDirs[0] || cloudDirPath();
+    // 其它笔记目录存在性校验
+    for (const d of config.notesDirs) {
+      if (d && !fs.existsSync(d)) throw new Error(`目录不存在: ${d}`);
     }
     saveConfig({
       notesDir: config.notesDir,
@@ -394,6 +584,7 @@ async function handleApi(pathname, req, res, url) {
       index: config.index,
     });
     rebuildIndexer();
+    cloudSync.startTimer();
     return sendJson(res, 200, publicConfig());
   }
 
@@ -412,13 +603,14 @@ async function handleApi(pathname, req, res, url) {
   }
 
   if (pathname === '/api/tree' && req.method === 'GET') {
-    // 支持多目录：为每个目录构建子树，合并为根节点
-    const dirs = (config.notesDirs || []).filter((d) => d && fs.existsSync(d));
+    // 支持多目录：为每个目录构建子树，合并为根节点（云端目录自动加入）
+    const dirs = effectiveDirs();
     if (!dirs.length) {
       return sendJson(res, 200, { tree: { name: 'Cognote', relPath: '', type: 'dir', children: [], noteCount: 0 } });
     }
     if (dirs.length === 1) {
       const tree = await notesApi.buildTree(dirs[0], config.index.ignoreDirs);
+      if (isCloudPath(dirs[0])) tree._cloud = true;
       return sendJson(res, 200, { tree });
     }
     // 多目录：每个目录作为根节点的子节点，用 _prefix 标记来源
@@ -428,6 +620,7 @@ async function handleApi(pathname, req, res, url) {
       const dirName = path.basename(dir);
       subtree.name = dirName;
       subtree._sourceDir = dir;
+      subtree._cloud = isCloudPath(dir);
       // 用目录名作为唯一 relPath 前缀，所有子节点加上此前缀
       subtree._prefix = dirName;
       subtree.relPath = dirName;
@@ -475,6 +668,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const noteDir = resolveNoteDir(body.dir);
     await notesApi.writeNote(noteDir, body.rel, body.content);
     indexer.add(path.join(noteDir, notesApi.fromPosix(body.rel)));
+    touchCloud(noteDir);
     return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
   }
 
@@ -498,6 +692,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       indexer.rename(indexer.keyFor(noteDir, body.from), path.join(noteDir, notesApi.fromPosix(body.to)));
     }
     try { indexer.save(INDEX_PATH); } catch {}
+    touchCloud(noteDir);
     return sendJson(res, 200, { ok: true, ...r });
   }
 
@@ -515,14 +710,17 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       for (const r of oldSubRels) indexer.remove(path.join(noteDir, notesApi.fromPosix(base + '/' + r)));
     }
     try { indexer.save(INDEX_PATH); } catch {}
+    touchCloud(noteDir);
     return sendJson(res, 200, { ok: true });
   }
 
   if (pathname === '/api/folder' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.rel) throw new Error('缺少路径');
-    const abs = notesApi.safeResolve(resolveNoteDir(body.dir), body.rel);
+    const noteDir = resolveNoteDir(body.dir);
+    const abs = notesApi.safeResolve(noteDir, body.rel);
     await fsp.mkdir(abs, { recursive: true });
+    touchCloud(noteDir);
     return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
   }
 
@@ -540,6 +738,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const entries = await fsp.readdir(abs);
     if (entries.length) throw new Error('目录非空（' + entries.length + ' 项），仅允许删除空目录');
     await fsp.rmdir(abs);
+    touchCloud(noteDir);
     return sendJson(res, 200, { ok: true, rel: notesApi.toPosix(body.rel) });
   }
 
@@ -549,8 +748,13 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const rel = body.rel.replace(/\\/g, '/');
     if (!rel.startsWith('_attachments/')) throw new Error('只能删除 _attachments 目录下的文件');
     if (rel.includes('..')) throw new Error('路径不合法');
-    const abs = notesApi.safeResolve(config.notesDir, rel);
+    let abs = notesApi.safeResolve(config.notesDir, rel);
+    if (!fs.existsSync(abs) && cloudEnabled()) {
+      const cloudAbs = notesApi.safeResolve(cloudDirPath(), rel);
+      if (fs.existsSync(cloudAbs)) abs = cloudAbs;
+    }
     try { await fsp.unlink(abs); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    touchCloud(path.dirname(abs));
     return sendJson(res, 200, { ok: true });
   }
 
@@ -558,8 +762,16 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     const rel = url.searchParams.get('rel');
     const dir = url.searchParams.get('dir');
     if (!rel) throw new Error('缺少 rel 参数');
-    const fileDir = dir && fs.existsSync(dir) ? dir : config.notesDir;
-    const abs = notesApi.safeResolve(fileDir, rel);
+    let fileDir = dir && fs.existsSync(dir) ? dir : config.notesDir;
+    let abs = notesApi.safeResolve(fileDir, rel);
+    // 附件回退：云端笔记的图片/附件存放在云端目录，主目录找不到时尝试云端目录
+    if ((!fs.existsSync(abs) || !fs.statSync(abs).isFile()) && cloudEnabled() && !isCloudPath(fileDir)) {
+      const cloudAbs = notesApi.safeResolve(cloudDirPath(), rel);
+      if (fs.existsSync(cloudAbs) && fs.statSync(cloudAbs).isFile()) {
+        fileDir = cloudDirPath();
+        abs = cloudAbs;
+      }
+    }
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('文件不存在: ' + rel);
     const ext = path.extname(abs).toLowerCase();
     const mime = {
@@ -654,6 +866,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     }
     const boundary = contentType.split('boundary=')[1];
     if (!boundary) throw new Error('缺少 boundary');
+    let uploadDirField = '';
 
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -675,6 +888,19 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
         }
       }
       start = idx + boundaryBuf.length;
+    }
+
+    for (const partBuf of parts) {
+      // 找 header 和 body 的分隔
+      const headerEnd = partBuf.indexOf('\r\n\r\n');
+      if (headerEnd === -1) continue;
+      const headerStr = partBuf.slice(0, headerEnd).toString('utf-8');
+      // 普通表单字段：dir 用于指定附件归属的笔记目录（云端笔记上传到云端目录）
+      const nameMatch = headerStr.match(/\bname="([^"]*)"/);
+      const hasFilename = /filename="([^"]*)"/.test(headerStr);
+      if (!hasFilename && nameMatch && nameMatch[1] === 'dir') {
+        uploadDirField = partBuf.slice(headerEnd + 4).toString('utf-8').trim();
+      }
     }
 
     for (const partBuf of parts) {
@@ -704,9 +930,12 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       const safeName = path.basename(originalName, ext).replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
       const filename = safeName + '_' + timestamp + ext;
       const relPath = '_attachments/' + filename;
-      const abs = notesApi.safeResolve(config.notesDir, relPath);
+      // 云端笔记的附件存到云端目录（随笔记一起同步到服务器）
+      const baseDir = uploadDirField && isCloudPath(uploadDirField) ? cloudDirPath() : config.notesDir;
+      const abs = notesApi.safeResolve(baseDir, relPath);
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       await fsp.writeFile(abs, body);
+      touchCloud(baseDir);
 
       return sendJson(res, 200, {
         ok: true,
@@ -941,6 +1170,14 @@ function tryListen(port, attemptsLeft) {
     console.log(`[Cognote] 笔记目录: ${config.notesDir || '(未设置)'}`);
     console.log(`[Cognote] 配置文件: ${CONFIG_PATH}`);
     console.log(`[Cognote] DeepSeek AI: ${ai.isConfigured() ? '已配置' : '未配置 (编辑 config.json 的 deepseek.apiKey)'}`);
+    if (cloudEnabled()) {
+      console.log(`[Cognote] 云端同步: ${config.cloud.url || '(未设置地址)'} → ${cloudDirPath()}`);
+      cloudSync.startTimer();
+      // 启动后稍候做一次增量同步（等文件系统/NAS 就绪）
+      cloudSync.scheduleSoon(3000);
+    } else {
+      console.log('[Cognote] 云端同步: 未启用');
+    }
     if (IS_PKG) {
       console.log('[Cognote] 打包模式：正在打开浏览器...');
       openBrowser(url);

@@ -1,0 +1,13 @@
+{
+  "name": "cognote-sync-server",
+  "version": "1.0.0",
+  "description": "Cognote 云端同步服务端（零依赖，Node 16+）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "license": "MIT"
+}

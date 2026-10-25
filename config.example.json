@@ -11,7 +11,14 @@
   },
   "index": {
     "maxFileSizeKb": 2048,
-    "ignoreDirs": [".git", "node_modules", "img", "images", ".obsidian", ".trash", ".vscode", "_attachments"]
+    "ignoreDirs": [".git", "node_modules", "img", "images", ".obsidian", ".trash", ".vscode", "_attachments", ".cognote-sync"]
   },
-  "reviewDirs": []
+  "reviewDirs": [],
+  "cloud": {
+    "enabled": false,
+    "url": "http://your-server/knowledge-sync",
+    "token": "",
+    "dir": "",
+    "intervalSec": 60
+  }
 }

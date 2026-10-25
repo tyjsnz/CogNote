@@ -15,6 +15,8 @@
     prevRel: null,        // 新建/编辑取消时返回的原笔记
     prevNoteDir: '',      // prevRel 所属的笔记目录
     reviewMode: false,    // 复习模式：打开笔记后显示评分面板
+    cloudSeenChangeAt: 0, // 云端同步最近一次落地变更时间（轮询刷新树用）
+    cloudStatus: null,
   };
 
   // ---------- 界面状态持久化（折叠/当前笔记/目录开关）----------
@@ -206,6 +208,148 @@
       badge.textContent = 'AI 未配置';
       badge.className = 'badge';
     }
+    updateCloudBadge(state.config.cloud);
+  }
+
+  // ---------- 云端同步状态 ----------
+  function fmtTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function updateCloudBadge(cloud) {
+    const el = $('#cloud-badge');
+    if (!el) return;
+    const c = cloud || {};
+    if (!c.enabled) {
+      el.textContent = '☁️ 未启用';
+      el.className = 'badge cloud-badge';
+      el.title = '云端同步未启用，点击打开设置';
+      return;
+    }
+    if (!c.tokenSet || !c.url) {
+      el.textContent = '☁️ 待配置';
+      el.className = 'badge cloud-badge warn';
+      el.title = '请先在设置中填写云端地址和 Token';
+      return;
+    }
+    const st = state.cloudStatus || {};
+    if (st.syncing) {
+      el.textContent = '☁️ 同步中...';
+      el.className = 'badge cloud-badge syncing';
+      el.title = '正在与云端同步';
+      return;
+    }
+    if (st.lastError) {
+      el.textContent = '☁️ 同步失败';
+      el.className = 'badge cloud-badge err';
+      el.title = '上次同步失败：' + st.lastError;
+      return;
+    }
+    if (st.lastSyncAt) {
+      el.textContent = '☁️ 已同步 ' + fmtTime(st.lastSyncAt);
+      el.className = 'badge cloud-badge ok';
+      el.title = '最近同步：' + new Date(st.lastSyncAt).toLocaleString() + '，点击立即同步';
+    } else {
+      el.textContent = '☁️ 待同步';
+      el.className = 'badge cloud-badge';
+      el.title = '点击立即同步';
+    }
+  }
+
+  function renderCloudSettingsStatus(st) {
+    const el = $('#cfg-cloud-status');
+    if (!el) return;
+    const s = st || {};
+    if (!s.enabled) { el.textContent = '未启用'; return; }
+    if (!s.configured) { el.textContent = '待配置（请填写地址与 Token）'; return; }
+    if (s.syncing) { el.textContent = '同步中...'; return; }
+    if (s.lastError) { el.textContent = '最近同步失败：' + s.lastError; return; }
+    if (s.lastSyncAt) {
+      const sum = s.lastSummary || {};
+      el.textContent = '最近同步 ' + new Date(s.lastSyncAt).toLocaleString()
+        + `（上传 ${sum.pushed || 0} / 下载 ${sum.pulled || 0} / 删除 ${(sum.deleted || 0) + (sum.remoteDeleted || 0)} / 冲突 ${sum.conflicts || 0}）`;
+    } else {
+      el.textContent = '尚未同步';
+    }
+  }
+
+  // 拉取同步状态；云端的变更落地后自动刷新目录树
+  async function refreshCloudStatus(silent = true) {
+    if (!state.config?.cloud?.enabled) {
+      updateCloudBadge(state.config?.cloud);
+      return null;
+    }
+    try {
+      const st = await api('/api/cloud/status');
+      state.cloudStatus = st;
+      updateCloudBadge(state.config.cloud);
+      renderCloudSettingsStatus(st);
+      if (st.lastChangeAt && st.lastChangeAt > state.cloudSeenChangeAt) {
+        state.cloudSeenChangeAt = st.lastChangeAt;
+        await Promise.all([loadTree(), loadTags(), loadStats()]);
+        if (!state.editing && state.currentRel && !relExists(applyDirPrefix(state.currentRel, state.currentNoteDir))) {
+          selectDir(state.currentDir || '');
+        }
+      }
+      return st;
+    } catch (e) {
+      if (!silent) toast('获取同步状态失败: ' + e.message, true);
+      return null;
+    }
+  }
+
+  async function cloudSyncNow(manual = true) {
+    if (!state.config?.cloud?.enabled) {
+      if (manual) toast('请先在设置中启用云端同步', true);
+      return null;
+    }
+    const el = $('#cloud-badge');
+    if (el) { el.textContent = '☁️ 同步中...'; el.className = 'badge cloud-badge syncing'; }
+    try {
+      const r = await api('/api/cloud/sync', { method: 'POST' });
+      state.cloudStatus = r.status || null;
+      if (r.summary?.error) throw new Error(r.summary.error);
+      updateCloudBadge(state.config.cloud);
+      renderCloudSettingsStatus(r.status);
+      if (r.changed) {
+        state.cloudSeenChangeAt = (r.status && r.status.lastChangeAt) || Date.now();
+        await Promise.all([loadTree(), loadTags(), loadStats()]);
+      }
+      if (manual) {
+        const s = r.summary || {};
+        toast(`同步完成：上传 ${s.pushed || 0}，下载 ${s.pulled || 0}，删除 ${(s.deleted || 0) + (s.remoteDeleted || 0)}，冲突 ${s.conflicts || 0}`);
+      }
+      return r;
+    } catch (e) {
+      updateCloudBadge(state.config.cloud);
+      renderCloudSettingsStatus(state.cloudStatus);
+      if (manual) toast('同步失败: ' + e.message, true);
+      return null;
+    }
+  }
+
+  async function testCloudConnection() {
+    const url = $('#cfg-cloud-url').value.trim();
+    const token = $('#cfg-cloud-token').value.trim();
+    if (!url) return toast('请先填写云端服务器地址', true);
+    if (!token && !state.config?.cloud?.tokenSet) return toast('请先填写云端访问 Token', true);
+    const el = $('#cfg-cloud-status');
+    if (el) el.textContent = '正在测试连接...';
+    try {
+      const r = await api('/api/cloud/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test: true, url, token }),
+      });
+      if (el) el.textContent = `连接成功（服务端版本 ${r.ping?.version ?? '-'}，文件 ${r.ping?.fileCount ?? 0} 个）`;
+      toast('云端连接成功');
+    } catch (e) {
+      if (el) el.textContent = '连接失败：' + e.message;
+      toast('连接失败: ' + e.message, true);
+    }
   }
 
   async function loadStats() {
@@ -249,10 +393,11 @@
     const rel = node.relPath;
     const branch = children.length > 0;
     const open = branch && (isDir ? (ui.expanded.size ? ui.expanded.has(rel) : depth < 2) : ui.expanded.has(rel));
+    const icon = node._cloud ? '☁️' : (isDir ? '📁' : '📄');
     html +=
-      '<div class="tree-node ' + (isDir ? 'dir' : 'file') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '" draggable="true">' +
+      '<div class="tree-node ' + (isDir ? 'dir' : 'file') + (node._cloud ? ' cloud-root' : '') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '" draggable="true">' +
       '<span class="arrow">' + (branch ? (open ? '▾' : '▸') : '') + '</span>' +
-      '<span class="icon">' + (isDir ? '📁' : '📄') + '</span>' +
+      '<span class="icon">' + icon + '</span>' +
       '<span>' + esc(isDir ? node.name : node.name.replace(/\.md$/i, '')) + '</span>' +
       (isDir && node.noteCount ? '<span class="count">' + node.noteCount + '</span>' : '') +
       '</div>';
@@ -324,7 +469,8 @@
     const t = stripDirPrefix(targetRel);
     if ((s.dir || '') !== (t.dir || '')) return { error: '暂不支持跨笔记目录移动' };
     const firstDir = (state.config?.notesDirs || [])[0] || '';
-    if (s.dir && s.dir !== firstDir) return { error: '暂不支持跨笔记目录移动' };
+    const cloudDir = state.config?.cloud?.dir || '';
+    if (s.dir && s.dir !== firstDir && s.dir !== cloudDir) return { error: '暂不支持跨笔记目录移动' };
     const name = s.rel.split('/').pop();
     if (!name) return { error: '无效的拖动源' };
     let targetDir;
@@ -934,6 +1080,11 @@
   function noteApiUrl(base, rel) {
     const d = state.currentNoteDir || '';
     return base + '?rel=' + encodeURIComponent(rel || state.currentRel) + (d ? '&dir=' + encodeURIComponent(d) : '');
+  }
+
+  // 当前编辑笔记所属目录（上传附件时用于决定存放位置）
+  function currentUploadDir() {
+    return state.currentNoteDir || stripDirPrefix(state.currentDir || '').dir || '';
   }
 
   // ---------- 复习计划管理 ----------
@@ -1860,6 +2011,8 @@
           if (!ed) return;
           const formData = new FormData();
           formData.append('file', file);
+          const upDir = currentUploadDir();
+          if (upDir) formData.append('dir', upDir);
           try {
             toast('正在上传图片...');
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -3063,9 +3216,18 @@
     $('#cfg-notesdirs').value = dirs.join('\n');
     const reviewDirs = state.config.reviewDirs || [];
     $('#cfg-reviewdirs').value = reviewDirs.join('\n');
-    const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments');
+    const ignoreDirs = (state.config.index?.ignoreDirs || []).filter((d) => d !== '_attachments' && d !== '.cognote-sync');
     $('#cfg-ignore-dirs').value = ignoreDirs.join(', ');
     $('#cfg-multi-dir-index').checked = !!state.config.multiDirIndex;
+    // 云端同步
+    const cloud = state.config.cloud || {};
+    $('#cfg-cloud-enabled').checked = !!cloud.enabled;
+    $('#cfg-cloud-url').value = cloud.url || '';
+    $('#cfg-cloud-token').value = '';
+    $('#cfg-cloud-token').placeholder = cloud.tokenSet ? '已保存（留空表示不修改）' : '输入云端访问 Token';
+    $('#cfg-cloud-dir').value = cloud.dir || '';
+    $('#cfg-cloud-interval').value = cloud.intervalSec || 60;
+    renderCloudSettingsStatus(state.cloudStatus || cloud);
     const provider = state.config.ai?.provider || 'deepseek';
     $('#cfg-ai-provider').value = provider;
     $('#cfg-apikey').value = '';
@@ -3074,6 +3236,7 @@
     const model = state.config.ai?.model || state.config.deepseek?.model || '';
     $('#dialog-settings').classList.remove('hidden');
     loadModelList(provider, baseurl, '', model);
+    refreshCloudStatus(true);
   }
 
   async function saveSettings() {
@@ -3087,6 +3250,7 @@
       .map((s) => s.trim())
       .filter(Boolean);
     if (!ignoreDirs.includes('_attachments')) ignoreDirs.push('_attachments');
+    if (!ignoreDirs.includes('.cognote-sync')) ignoreDirs.push('.cognote-sync');
     const provider = $('#cfg-ai-provider').value;
     const apiKey = $('#cfg-apikey').value.trim();
     const baseUrl = $('#cfg-baseurl').value.trim();
@@ -3111,10 +3275,43 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+
+    // 云端同步配置（地址 / Token / 目录 / 开关）
+    const cloudEnabled = $('#cfg-cloud-enabled').checked;
+    const cloudUrl = $('#cfg-cloud-url').value.trim();
+    const cloudToken = $('#cfg-cloud-token').value.trim();
+    const cloudDir = $('#cfg-cloud-dir').value.trim();
+    const cloudInterval = Number($('#cfg-cloud-interval').value) || 60;
+    if (cloudEnabled && !cloudUrl) {
+      return toast('启用云端同步前请填写服务器地址', true);
+    }
+    if (cloudEnabled && !cloudToken && !state.config?.cloud?.tokenSet) {
+      return toast('启用云端同步前请填写 Token', true);
+    }
+    if (cloudEnabled || state.config?.cloud?.enabled) {
+      try {
+        await api('/api/cloud/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabled: cloudEnabled,
+            url: cloudUrl,
+            token: cloudToken,
+            dir: cloudDir,
+            intervalSec: cloudInterval,
+          }),
+        });
+      } catch (e) {
+        return toast('云端同步设置保存失败: ' + e.message, true);
+      }
+    }
+
     toast('设置已保存，索引已重建');
     $('#dialog-settings').classList.add('hidden');
     await fetchConfig();
     await Promise.all([loadTree(), loadTags(), loadStats()]);
+    refreshCloudStatus(true);
+    if (state.config?.cloud?.enabled) cloudSyncNow(false);
   }
 
   // v1.3: 双链图
@@ -3244,6 +3441,8 @@
       for (const file of files) {
         const formData = new FormData();
         formData.append('file', file);
+        const upDir = currentUploadDir();
+        if (upDir) formData.append('dir', upDir);
         try {
           const res = await fetch('/api/upload', { method: 'POST', body: formData });
           let data;
@@ -3301,6 +3500,14 @@
     });
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
+
+    // 云端同步
+    $('#cloud-badge').addEventListener('click', () => {
+      if (!state.config?.cloud?.enabled) openSettings();
+      else cloudSyncNow(true);
+    });
+    $('#btn-cloud-test').addEventListener('click', testCloudConnection);
+    $('#btn-cloud-sync-now').addEventListener('click', () => cloudSyncNow(true));
 
     // 主题切换（顶栏菜单 + 设置色板共用 data-theme-opt）
     $('#btn-theme').addEventListener('click', (e) => {
@@ -3390,6 +3597,11 @@
       toast('加载失败: ' + e.message, true);
     }
     await restoreView();
+    // 云端同步状态轮询（15 秒）：同步到新内容时自动刷新目录树
+    if (state.config?.cloud?.enabled) {
+      refreshCloudStatus(true);
+      setInterval(() => refreshCloudStatus(true), 15000);
+    }
   }
 
   window.addEventListener('beforeunload', saveUI);

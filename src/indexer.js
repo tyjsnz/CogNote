@@ -188,6 +188,38 @@ class Indexer {
   _parse(absPath) {
     const relPath = this.keyForAbs(absPath);
     if (!relPath) return null;
+    let st;
+    try {
+      st = fs.statSync(absPath);
+    } catch (err) {
+      this.errors.push(`${relPath}: ${err.message}`);
+      return null;
+    }
+    const isMd = MD_RE.test(absPath);
+    const isCode = CODE_RE.test(absPath);
+    // macOS 云盘/NAS 的「未下载」占位文件（blocks=0 但 size>0）：读取会长时间超时，
+    // 这里只登记元信息，正文留空；下载落地后「重新扫描」即可补全全文索引
+    const isPlaceholder = st.size > 0 && st.blocks === 0;
+    if (isPlaceholder) {
+      const title = path.basename(relPath).replace(/\.[^.]+$/, '');
+      return {
+        relPath,
+        absPath,
+        title,
+        tags: [],
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        content: '',
+        body: '',
+        headings: [],
+        links: [],
+        placeholder: true,
+        titleT: tokenCountMap(title),
+        tagT: new Map(),
+        headT: new Map(),
+        bodyT: new Map(),
+      };
+    }
     let content;
     try {
       content = fs.readFileSync(absPath, 'utf8');
@@ -195,8 +227,6 @@ class Indexer {
       this.errors.push(`${relPath}: ${err.message}`);
       return null;
     }
-    const isMd = MD_RE.test(absPath);
-    const isCode = CODE_RE.test(absPath);
     let tags = [];
     let body = content;
     let title = '';
@@ -218,7 +248,6 @@ class Indexer {
     } else {
       title = path.basename(relPath).replace(/\.[^.]+$/, '');
     }
-    const st = fs.statSync(absPath);
     return {
       relPath,
       absPath,
@@ -286,9 +315,21 @@ class Indexer {
     const doc = this.docs.get(relPath);
     if (!doc) return null;
     if (doc.body != null) return doc.body;
+    const abs = this.absFor(relPath);
     try {
-      const parsed = this._parse(this.absFor(relPath));
-      if (parsed) doc.body = parsed.body;
+      // 云端占位文件（未下载）直接跳过，避免读取长时间超时
+      const st = fs.statSync(abs);
+      if (st.size > 0 && st.blocks === 0) {
+        doc.body = '';
+        return doc.body;
+      }
+    } catch { /* 文件暂不可用，按空正文处理 */ }
+    try {
+      const parsed = this._parse(abs);
+      if (parsed) {
+        doc.body = parsed.body;
+        if (!parsed.placeholder) doc.placeholder = false;
+      }
     } catch (err) {
       this.errors.push(`${relPath}: ${err.message}`);
     }
@@ -349,6 +390,7 @@ class Indexer {
         tagT: [...doc.tagT.entries()],
         headT: [...doc.headT.entries()],
         bodyT: [...doc.bodyT.entries()],
+        placeholder: !!doc.placeholder,
       };
     }
     // 保存倒排索引
@@ -361,6 +403,68 @@ class Indexer {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  }
+
+  // 索引范围变化但只新增目录时：迁移已有 key 的前缀，避免全量重读文件
+  // 返回 true 表示迁移成功（缓存可继续使用），false 表示需要全量重建
+  rekeyForScope(oldScope) {
+    const old = (oldScope || []).map((d) => path.resolve(d));
+    const oldPrefixActive = old.length > 1;
+    if (oldPrefixActive === this.prefixActive) {
+      if (!this.prefixActive) return old[0] === path.resolve(this.notesDir);
+      // 多目录 → 多目录：仅当目录集合未变化时 key 才一致
+      const oldNames = new Set(old.map((d) => path.basename(d)));
+      const newNames = new Set(this.scope.map((d) => path.basename(d)));
+      return oldNames.size === newNames.size && [...oldNames].every((n) => newNames.has(n));
+    }
+    if (oldPrefixActive && !this.prefixActive) {
+      // 从多目录切回单目录：只保留属于新 notesDir 的条目
+      const keep = path.resolve(this.notesDir);
+      const names = new Set(old.map((d) => path.basename(d)));
+      const strip = (k) => {
+        const i = k.indexOf('/');
+        if (i === -1) return null;
+        const name = k.slice(0, i);
+        if (!names.has(name)) return null;
+        return name === path.basename(keep) ? k.slice(i + 1) : null;
+      };
+      const newDocs = new Map();
+      for (const [k, v] of this.docs) {
+        const nk = strip(k);
+        if (nk == null) continue;
+        v.relPath = nk;
+        newDocs.set(nk, v);
+      }
+      const newIndex = new Map();
+      for (const [tok, entries] of this.index) {
+        const m = new Map();
+        for (const [k, v] of entries) {
+          const nk = strip(k);
+          if (nk != null) m.set(nk, v);
+        }
+        if (m.size) newIndex.set(tok, m);
+      }
+      this.docs = newDocs;
+      this.index = newIndex;
+      return true;
+    }
+    // 从单目录切到多目录：所有旧条目都属于旧 notesDir，补上目录名前缀
+    const prefix = path.basename(old[0] || this.notesDir) + '/';
+    const newDocs = new Map();
+    for (const [k, v] of this.docs) {
+      const nk = k.startsWith(prefix) ? k : prefix + k;
+      v.relPath = nk;
+      newDocs.set(nk, v);
+    }
+    const newIndex = new Map();
+    for (const [tok, entries] of this.index) {
+      const m = new Map();
+      for (const [k, v] of entries) m.set(k.startsWith(prefix) ? k : prefix + k, v);
+      newIndex.set(tok, m);
+    }
+    this.docs = newDocs;
+    this.index = newIndex;
+    return true;
   }
 
   // v1.1: 从磁盘加载索引
@@ -384,6 +488,7 @@ class Indexer {
           tagT: new Map(d.tagT),
           headT: new Map(d.headT),
           bodyT: new Map(d.bodyT),
+          placeholder: !!d.placeholder,
         });
       }
       for (const [token, entries] of Object.entries(data.index)) {

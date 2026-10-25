@@ -7,6 +7,11 @@ dist/
 # Config (contains API keys)
 config.json
 
+# 云端同步
+云端同步/
+sync-server/data/
+sync-server/config.json
+
 # Runtime
 server.log
 server.err.log

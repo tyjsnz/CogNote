@@ -52,6 +52,7 @@
     </div>
     <div class="top-actions">
       <span id="ai-badge" class="badge">AI 未配置</span>
+      <button id="cloud-badge" class="badge cloud-badge" title="云端同步状态，点击立即同步">☁️ 未配置</button>
       <button id="btn-rescan" title="重新扫描笔记目录">🔄 重新扫描</button>
       <button id="btn-show-links" title="查看笔记引用关系图">🔗 双链图</button>
       <div class="theme-wrap">
@@ -267,6 +268,33 @@
           切换开关或增删笔记目录后会自动重建索引，被删除目录的索引条目会一并从索引表中移除。目录较多时开启会略微增加启动扫描耗时。
         </span>
       </label>
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
+      <div class="settings-label">☁️ 云端同步</div>
+      <label class="check-row">
+        <input id="cfg-cloud-enabled" type="checkbox">
+        <span class="check-row-title">启用云端同步</span>
+        <span class="check-row-hint">
+          启用后知识库目录树会出现「云端同步」根分类，在它下面新建的分类和笔记会自动上传到云端；<br>
+          其它电脑配置相同的服务器地址和 Token 后即可同步同一份云端笔记。
+        </span>
+      </label>
+      <label>云端服务器地址
+        <input id="cfg-cloud-url" type="text" placeholder="http://8.138.140.186/knowledge-sync">
+      </label>
+      <label>云端访问 Token
+        <input id="cfg-cloud-token" type="password" placeholder="留空表示不修改已保存的 Token">
+      </label>
+      <label>本地云端同步目录
+        <input id="cfg-cloud-dir" type="text" placeholder="留空使用默认目录">
+      </label>
+      <label>自动同步间隔（秒，最小 15）
+        <input id="cfg-cloud-interval" type="number" min="15" step="5" placeholder="60">
+      </label>
+      <div class="cloud-actions">
+        <button type="button" id="btn-cloud-test" class="link-btn">🔌 测试连接</button>
+        <button type="button" id="btn-cloud-sync-now" class="link-btn">🔄 立即同步</button>
+        <span id="cfg-cloud-status" class="muted cloud-settings-status">未启用</span>
+      </div>
       <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
       <label>AI 服务商
         <select id="cfg-ai-provider" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;">

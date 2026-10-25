@@ -207,6 +207,15 @@ body {
   font-weight: 500;
 }
 .badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.err { background: rgba(220, 60, 60, .12); color: #d33; }
+.badge.syncing { background: var(--accent-bg); color: var(--accent); }
+button.cloud-badge { border: none; cursor: pointer; font-family: inherit; }
+button.cloud-badge:hover { filter: brightness(.96); }
+.cloud-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.cloud-settings-status { font-size: 12px; }
+.tree-node.cloud-root > .icon { filter: drop-shadow(0 0 2px var(--accent-bg)); }
+.tree-node.cloud-root > span:nth-last-child(2) { font-weight: 600; }
 
 button, .btn-link {
   padding: 7px 12px;
