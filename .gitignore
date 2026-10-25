@@ -30,4 +30,6 @@ Thumbs.db
 npm-debug.log*
 
 # Vendor (bundled third-party, managed separately)
-public/vendor/
+public/vendora
+
+云端同步功能部署记录.md
