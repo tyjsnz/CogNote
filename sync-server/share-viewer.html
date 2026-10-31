@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分享笔记</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+  :root { --bg:#f7f7f8; --panel:#fff; --border:#e3e3e6; --text:#1f2328; --muted:#6b7280; --accent:#2563eb; --ok-bg:#ecfdf5; --ok:#059669; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 16px 80px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:13px; }
+  #gate { max-width: 420px; margin: 12vh auto; }
+  #gate h2 { margin:0 0 6px; font-size:18px; }
+  input[type=password], input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; margin:8px 0 14px; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { padding:10px 18px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .err { color:#d33; font-size:13px; min-height:18px; }
+  #app { display:none; }
+  #layout { display:flex; gap:16px; align-items:flex-start; }
+  #side { width:240px; flex:none; position:sticky; top:16px; max-height:calc(100vh - 32px); overflow:auto; }
+  #side .card { padding:12px; }
+  #filelist { list-style:none; margin:8px 0 0; padding:0; }
+  #filelist li { padding:7px 10px; border-radius:6px; cursor:pointer; font-size:13px; word-break:break-all; display:flex; gap:6px; align-items:baseline; }
+  #filelist li:hover { background:rgba(37,99,235,.08); }
+  #filelist li.active { background:rgba(37,99,235,.14); font-weight:600; }
+  #filelist .ext { flex:none; font-size:11px; color:var(--muted); }
+  #content { flex:1; min-width:0; }
+  #content .card { padding:28px 32px; }
+  .note-title { font-size:22px; margin:0 0 16px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+  .md h1,.md h2,.md h3,.md h4 { line-height:1.35; margin:1.2em 0 .5em; }
+  .md h1 { font-size:1.5em; } .md h2 { font-size:1.3em; } .md h3 { font-size:1.15em; }
+  .md p { margin:.6em 0; }
+  .md a { color:var(--accent); }
+  .md code { background:#f0f0f2; padding:2px 5px; border-radius:4px; font-size:.9em; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .md pre { background:#f6f8fa; padding:14px; border-radius:8px; overflow:auto; }
+  .md pre code { background:none; padding:0; }
+  .md blockquote { border-left:3px solid var(--border); margin:.6em 0; padding:2px 14px; color:var(--muted); }
+  .md table { border-collapse:collapse; margin:.8em 0; }
+  .md th,.md td { border:1px solid var(--border); padding:6px 12px; }
+  .md th { background:#f6f8fa; }
+  .md img { max-width:100%; border-radius:6px; }
+  .md ul,.md ol { padding-left:1.6em; }
+  .math-block { display:block; overflow-x:auto; margin:.9em 0; text-align:center; }
+  .math-inline { white-space:nowrap; }
+  .empty { color:var(--muted); text-align:center; padding:60px 0; }
+  @media (max-width:720px){ #layout{flex-direction:column;} #side{width:100%;position:static;max-height:none;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="gate">
+    <div class="card">
+      <h2>🔒 分享笔记</h2>
+      <p class="muted" id="gate-title">请输入查看密码以打开分享内容。</p>
+      <input id="pw" type="password" placeholder="查看密码" autocomplete="off">
+      <div class="err" id="gate-err"></div>
+      <button id="btn-open">查看</button>
+    </div>
+  </div>
+  <div id="app">
+    <div id="layout">
+      <div id="side">
+        <div class="card">
+          <strong id="share-title"></strong>
+          <div class="muted" id="share-meta"></div>
+          <ul id="filelist"></ul>
+        </div>
+      </div>
+      <div id="content"><div class="card"><div class="md" id="note"><div class="empty">从左侧选择一篇笔记</div></div></div></div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var id = (params.get('id') || '').trim();
+  var pw = sessionStorage.getItem('share-pw-' + id) || '';
+  var files = [];
+  var base = location.pathname.replace(/\/s\/viewer$/, '');
+
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function apiUrl(p) { return base + '/api/public/' + p; }
+
+  function renderKatex(el) {
+    if (!window.katex) { setTimeout(function(){ renderKatex(el); }, 120); return; }
+    el.querySelectorAll('.math-block[data-latex],.math-inline[data-latex]').forEach(function (n) {
+      try {
+        n.innerHTML = window.katex.renderToString(n.getAttribute('data-latex'), { displayMode: n.classList.contains('math-block'), throwOnError:false, strict:false });
+      } catch (e) { n.textContent = n.getAttribute('data-latex'); }
+    });
+  }
+
+  // 轻量 Markdown 渲染（常用语法 + 公式）
+  function md(src) {
+    var s = esc(src);
+    var mathCache = [];
+    function stash(html) { mathCache.push(html); return '\u0000KX' + (mathCache.length-1) + '\u0000'; }
+    // 先提取公式（未转义的 $/$$ —— 上面 esc 不影响 $）
+    s = s.replace(/\$\$([\s\S]+?)\$\$/g, function(_, m){ return stash('<span class="math-block" data-latex="'+esc(m.trim())+'"></span>'); });
+    s = s.replace(/\$([^$\n]+?)\$/g, function(_, m){ return stash('<span class="math-inline" data-latex="'+esc(m.trim())+'"></span>'); });
+    // 代码块
+    s = s.replace(/```([\s\S]*?)```/g, function(_, c){ return stash('<pre><code>'+c.replace(/^\w*\n/,'')+'</code></pre>'); });
+    // 标题
+    s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>');
+    s = s.replace(/^#### (.*)$/gm, '<h4>$1</h4>').replace(/^### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^## (.*)$/gm, '<h2>$1</h2>').replace(/^# (.*)$/gm, '<h1>$1</h1>');
+    // 引用
+    s = s.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
+    // 图片 / 链接（图片先占位 data-share-src，渲染后统一经公开接口加载）
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, src2){
+      var path = '';
+      var api = src2.match(/\/api\/file\?rel=([^&\s"']+)/);
+      if (api) { try { path = decodeURIComponent(api[1]); } catch (e) { path = api[1]; } }
+      else if (!/^[a-z]+:\/\//i.test(src2) && src2.trim()) path = src2.trim();
+      if (!path) return stash('<img src="'+esc(src2)+'" alt="'+esc(alt)+'">');
+      return stash('<img data-share-src="'+esc(path)+'" alt="'+esc(alt)+'">');
+    });
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // 粗体 / 斜体 / 行内代码
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 分隔线
+    s = s.replace(/^---$/gm, '<hr>');
+    // 无序 / 有序列表（简单逐行）
+    s = s.replace(/^(\s*)[-*] (.*)$/gm, function(_, sp, t){ return (sp.length?'':'<ul>')+'<li>'+t+'</li>'+(sp.length?'':'</ul>'); });
+    s = s.replace(/^(\s*)\d+\. (.*)$/gm, function(_, sp, t){ return (sp.length?'':'<ol>')+'<li>'+t+'</li>'+(sp.length?'':'</ol>'); });
+    // 段落
+    s = s.split(/\n{2,}/).map(function(block){
+      if (/^\s*<(h\d|ul|ol|pre|blockquote|hr|img|span class="math)/.test(block)) return block;
+      return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
+    }).join('\n');
+    // 恢复公式/代码/图片
+    s = s.replace(/\u0000KX(\d+)\u0000/g, function(_, i){ return mathCache[+i]; });
+    return s;
+  }
+
+  // 通过公开接口加载图片 → data URL
+  function loadImages(root, notePath) {
+    root.querySelectorAll('img[data-share-src]').forEach(function (img) {
+      var p = img.getAttribute('data-share-src');
+      // 相对路径按笔记所在目录解析
+      if (p && p.charAt(0) !== '/') {
+        var dir = notePath.indexOf('/') === -1 ? '' : notePath.slice(0, notePath.lastIndexOf('/') + 1);
+        p = dir + p;
+      }
+      p = p.replace(/^\.\//, '').replace(/^\/+/, '');
+      fetch(apiUrl('share/file?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(pw) + '&path=' + encodeURIComponent(p)))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d.ok && d.content) img.src = 'data:' + (d.mime || 'application/octet-stream') + ';base64,' + d.content;
+          else img.alt = (img.alt ? img.alt + ' — ' : '') + '图片加载失败';
+        })
+        .catch(function(){ img.alt = (img.alt ? img.alt + ' — ' : '') + '图片加载失败'; });
+    });
+  }
+
+  function fileTitle(path) {
+    var name = path.split('/').pop();
+    return name.replace(/\.[^.]+$/, '');
+  }
+  function fileExt(path) { var m = path.match(/\.([^.\/]+)$/); return m ? m[1].toLowerCase() : ''; }
+
+  function renderList() {
+    var ul = document.getElementById('filelist');
+    ul.innerHTML = '';
+    var mdFiles = files.filter(function(f){ return fileExt(f.path) === 'md'; });
+    if (!mdFiles.length) {
+      ul.innerHTML = '<li class="muted" style="cursor:default">（分享内暂无 Markdown 笔记）</li>';
+    }
+    mdFiles.forEach(function (f) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="ext">md</span><span>' + esc(fileTitle(f.path)) + '</span>';
+      li.addEventListener('click', function () { openFile(f.path, li); });
+      ul.appendChild(li);
+    });
+  }
+
+  var fileCache = {};
+  function openFile(path, li) {
+    document.querySelectorAll('#filelist li').forEach(function(n){ n.classList.remove('active'); });
+    if (li) li.classList.add('active');
+    var note = document.getElementById('note');
+    if (fileCache[path] != null) { note.innerHTML = fileCache[path]; renderKatex(note); loadImages(note, path); return; }
+    note.innerHTML = '<div class="empty">加载中…</div>';
+    fetch(apiUrl('share/file?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(pw) + '&path=' + encodeURIComponent(path)))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { note.innerHTML = '<div class="empty">' + esc(d.error || '加载失败') + '</div>'; return; }
+        var text = decodeURIComponent(escape(atob(d.content)));
+        // 剥离 frontmatter
+        text = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+        var html = md(text);
+        fileCache[path] = html;
+        note.innerHTML = html;
+        renderKatex(note);
+        loadImages(note, path);
+        document.getElementById('content').scrollIntoView({ behavior:'smooth' });
+      })
+      .catch(function(e){ note.innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>'; });
+  }
+
+  function openShare() {
+    var err = document.getElementById('gate-err');
+    var btn = document.getElementById('btn-open');
+    err.textContent = '';
+    btn.disabled = true;
+    fetch(apiUrl('share/open'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id, password: pw })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false;
+      if (!d.ok) { err.textContent = d.error || '打开失败'; return; }
+      sessionStorage.setItem('share-pw-' + id, pw);
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      document.title = d.title || '分享笔记';
+      document.getElementById('share-title').textContent = d.title || '分享笔记';
+      document.getElementById('share-meta').textContent = d.expiresAt ? ('有效期至 ' + new Date(d.expiresAt).toLocaleDateString()) : '长期有效';
+      files = d.files || [];
+      renderList();
+      var mdFiles = files.filter(function(f){ return fileExt(f.path)==='md'; });
+      if (mdFiles.length === 1) openFile(mdFiles[0].path, document.querySelector('#filelist li'));
+    }).catch(function(e){ btn.disabled = false; err.textContent = '网络错误: ' + e.message; });
+  }
+
+  document.getElementById('btn-open').addEventListener('click', openShare);
+  document.getElementById('pw').addEventListener('keydown', function(e){ if (e.key === 'Enter') openShare(); });
+  if (!id) { document.getElementById('gate-title').textContent = '链接无效：缺少分享 ID'; document.getElementById('pw').style.display='none'; document.getElementById('btn-open').style.display='none'; }
+  else if (pw) { document.getElementById('pw').value = pw; openShare(); }
+})();
+</script>
+</body>
+</html>

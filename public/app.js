@@ -731,6 +731,23 @@
   }
 
   const ctxActions = {
+    // 判断目录树节点是否位于「云端同步」根分类下，返回其相对云端目录的路径
+    cloudRelOf(treeRel) {
+      const cloudRoot = document.querySelector('#tree .tree-node.cloud-root');
+      if (!cloudRoot) return null;
+      const rootRel = cloudRoot.dataset.rel;
+      if (!rootRel) return treeRel || ''; // 单目录模式：整棵树就是云端目录
+      if (treeRel === rootRel) return '';
+      if (treeRel && treeRel.startsWith(rootRel + '/')) return treeRel.slice(rootRel.length + 1);
+      return null;
+    },
+    share() {
+      const n = window._ctxNode;
+      if (!n || n.type === 'root') return;
+      const dir = ctxActions.cloudRelOf(n.rel);
+      if (dir === null) { toast('只能分享「云端同步」分类下的笔记或目录', true); return; }
+      openShareDialog(n.rel, dir);
+    },
     reveal() {
       const n = window._ctxNode;
       if (!n || n.type === 'root') return;
@@ -969,12 +986,15 @@
         const rel = node.dataset.rel;
         const isDir = node.dataset.type === 'dir';
         window._ctxNode = { type: node.dataset.type, rel };
+        const isCloud = ctxActions.cloudRelOf(rel) !== null;
+        const shareItem = isCloud ? [{ action: 'share', label: '🔗 分享' }] : [];
         const items = isDir
           ? [
               { action: 'new-subfolder', label: '📁 新建子分类' },
               { action: 'new-note', label: '📄 新建笔记' },
               ...(rel ? [{ action: 'rename-folder', label: '✏️ 重命名' }] : []),
               { action: 'reveal', label: '🔗 打开本地位置' },
+              ...shareItem,
             ]
           : [
               { action: 'edit', label: '✏️ 编辑' },
@@ -983,6 +1003,7 @@
               { action: 'move', label: '📁 归类 / 移动' },
               { action: 'export-pdf', label: '📄 导出 PDF' },
               { action: 'reveal', label: '🔗 打开本地位置' },
+              ...shareItem,
               { sep: true },
               { action: 'delete', label: '🗑️ 删除', danger: true },
             ];
@@ -1707,22 +1728,72 @@
     if (state.currentRel) openCurrentNote();
   }
 
-  // ---------- 数学公式：$..$ / $$..$$ 文本 → 公式节点（编辑器加载 markdown 时） ----------
+  // ---------- 数学公式：$..$ / $$..$$ / \(..\) / \[.. \] 文本 → 公式节点 ----------
+  // 支持的定界符：$$..$$（块级）、\[..\]（块级）、\(..\)（行内）、$..$（行内）
+  // 货币保护：$ 两侧紧贴空白或内容为纯数字金额时不视为公式
   function splitMathParts(src) {
-    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g;
+    const re = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/g;
     let last = 0;
     let m;
     let parts = null;
     while ((m = re.exec(src))) {
+      let math = null;
+      let block = false;
+      if (m[1] !== undefined) { math = m[1].trim(); block = true; }
+      else if (m[2] !== undefined) { math = m[2].trim(); block = true; }
+      else if (m[3] !== undefined) { math = m[3].trim(); }
+      else {
+        const inner = m[4];
+        // 货币等误伤保护：内侧以空白开头/结尾，或纯数字金额 → 不是公式。
+        // 从开 $ 后一位继续扫描，保证后面的真公式（如 $100 和 $x^2$）不被漏掉
+        if (/^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner)) {
+          re.lastIndex = m.index + 1;
+          continue;
+        }
+        math = inner.trim();
+      }
+      if (!math) continue;
       if (!parts) parts = [];
       if (m.index > last) parts.push({ text: src.slice(last, m.index) });
-      if (m[1] !== undefined) parts.push({ math: m[1].trim(), block: true });
-      else parts.push({ math: m[2].trim(), block: false });
+      parts.push({ math, block });
       last = re.lastIndex;
     }
     if (!parts) return null;
     if (last < src.length) parts.push({ text: src.slice(last) });
     return parts;
+  }
+
+  // 把 splitMathParts 的结果构建为 ProseMirror 内容（段落 + 块级公式节点）
+  // 直接插入节点 JSON，绕过 markdown 字符串解析的不确定行为
+  function mathPartsToContent(parts) {
+    const blocks = [];
+    let inline = [];
+    const flush = () => { if (inline.length) { blocks.push({ type: 'paragraph', content: inline }); inline = []; } };
+    const pushText = (txt) => {
+      const paras = txt.split(/\n{2,}/);
+      paras.forEach((p, idx) => {
+        if (idx > 0) flush();
+        const lines = p.split('\n');
+        lines.forEach((line, i) => {
+          if (i > 0) inline.push({ type: 'hardBreak' });
+          if (line) inline.push({ type: 'text', text: line });
+        });
+      });
+    };
+    for (const part of parts) {
+      if (part.math) {
+        if (part.block) {
+          flush();
+          blocks.push({ type: 'blockMath', attrs: { latex: part.math } });
+        } else {
+          inline.push({ type: 'inlineMath', attrs: { latex: part.math } });
+        }
+      } else if (part.text) {
+        pushText(part.text);
+      }
+    }
+    flush();
+    return blocks;
   }
 
   function convertMathTextNodes(root) {
@@ -1957,31 +2028,19 @@
                     }
                   }
                 }
-                // Auto-parse $...$ and $$...$$ from pasted text
+                // Auto-parse $...$ / $$...$$ / \(..\)/\[..\] from pasted text
                 const text = event.clipboardData?.getData('text/plain');
-                if (text && (/\$[^$]+\$/s.test(text) || /\$\$[\s\S]+\$\$/.test(text))) {
-                  event.preventDefault();
-                  const ed = editorRef.current;
-                  if (!ed) return false;
-                  // Check for block math $$...$$
-                  const blockRe = /\$\$([\s\S]+?)\$\$/g;
-                  let hasBlock = false;
-                  let result = text.replace(blockRe, (_, latex) => { hasBlock = true; return latex; });
-                  if (hasBlock) {
-                    ed.chain().focus().insertContent('$$\n' + result.trim() + '\n$$').run();
-                  } else {
-                    // Inline math $...$
-                    const inlineRe = /\$([^$]+?)\$/g;
-                    const matches = [...text.matchAll(inlineRe)];
-                    if (matches.length === 1 && matches[0][0] === text.trim()) {
-                      // Entire paste is one math expression — insert as math node
-                      ed.chain().focus().insertContent('$' + matches[0][1] + '$').run();
-                    } else {
-                      // Mixed text and math — insert as markdown
-                      ed.chain().focus().insertContent(text).run();
-                    }
+                if (text && /[$\\]/.test(text)) {
+                  const parts = splitMathParts(text);
+                  if (parts && parts.some((p) => p.math)) {
+                    event.preventDefault();
+                    const ed = editorRef.current;
+                    if (!ed) return false;
+                    // 直接构建公式节点 JSON 插入：混合文本、多公式、块级+行内混排都能正确解析
+                    const content = mathPartsToContent(parts);
+                    if (content.length) ed.chain().focus().insertContent(content).run();
+                    return true;
                   }
-                  return true;
                 }
                 return false;
               },
@@ -2517,6 +2576,105 @@
       vditor.setValue('# 新笔记\n\n');
       $('#edit-title').focus();
     });
+  }
+
+  // ---------- 分享 ----------
+  let shareCtx = null; // { dir } 当前分享目标（云端相对路径）
+
+  function genPassword() {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    const bytes = new Uint8Array(8);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+  }
+
+  function openShareDialog(treeRel, dir) {
+    shareCtx = { dir };
+    $('#share-src').textContent = treeRel || '(整个云端目录)';
+    $('#share-password').value = genPassword();
+    $('#share-expire').value = '7';
+    $('#share-result').classList.add('hidden');
+    $('#btn-share-ok').disabled = false;
+    $('#btn-share-ok').textContent = '创建分享';
+    $('#dialog-share').classList.remove('hidden');
+  }
+
+  async function createShare() {
+    if (!shareCtx) return;
+    const password = $('#share-password').value.trim();
+    if (password.length < 4) { toast('查看密码至少 4 位', true); return; }
+    const btn = $('#btn-share-ok');
+    btn.disabled = true;
+    btn.textContent = '创建中…';
+    try {
+      const d = await api('/api/share/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: shareCtx.dir,
+          title: ($('#share-src').textContent || '').split('/').pop(),
+          password,
+          expireDays: parseInt($('#share-expire').value, 10) || 0,
+        }),
+      });
+      $('#share-link').value = d.share.url;
+      $('#share-pw-show').value = password;
+      $('#share-result').classList.remove('hidden');
+      btn.textContent = '创建分享';
+      toast('分享已创建');
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '创建分享';
+      toast('创建分享失败: ' + e.message, true);
+    }
+  }
+
+  function copyShareLink() {
+    const link = $('#share-link').value;
+    const pw = $('#share-pw-show').value;
+    copyText(link + '\n查看密码: ' + pw).then(() => toast('链接和密码已复制'));
+  }
+
+  // 设置 → 分享管理列表
+  async function loadCloudShares() {
+    const box = $('#cloud-share-list');
+    box.classList.remove('hidden');
+    box.innerHTML = '<div class="muted" style="font-size:13px;">加载中…</div>';
+    try {
+      const d = await api('/api/cloud/shares');
+      const list = d.shares || [];
+      if (!list.length) { box.innerHTML = '<div class="muted" style="font-size:13px;">暂无分享。在云端目录上右键 →「🔗 分享」创建。</div>'; return; }
+      box.innerHTML = list
+        .map((s) => {
+          const exp = s.expired ? '<span style="color:#d33;">已过期</span>' : s.expiresAt ? '至 ' + new Date(s.expiresAt).toLocaleDateString() : '长期有效';
+          return (
+            '<div class="share-row" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+            '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(s.paths.join(', ')) + '">' + esc(s.title || '(未命名)') + '</span>' +
+            '<span class="muted" style="flex:none;">' + exp + '</span>' +
+            '<button class="link-btn share-copy-link" data-url="' + escAttr(s.url) + '" style="flex:none;">复制链接</button>' +
+            '<button class="link-btn share-del" data-id="' + escAttr(s.id) + '" style="flex:none;color:#d33;">删除</button>' +
+            '</div>'
+          );
+        })
+        .join('');
+      box.querySelectorAll('.share-copy-link').forEach((b) =>
+        b.addEventListener('click', () => copyText(b.dataset.url).then(() => toast('链接已复制（访问需查看密码）')))
+      );
+      box.querySelectorAll('.share-del').forEach((b) =>
+        b.addEventListener('click', async () => {
+          if (!confirm('确定删除该分享？链接将立即失效。')) return;
+          try {
+            await api('/api/share/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }) });
+            toast('分享已删除');
+            loadCloudShares();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        })
+      );
+    } catch (e) {
+      box.innerHTML = '<div class="muted" style="font-size:13px;color:#d33;">' + esc(e.message) + '</div>';
+    }
   }
 
   async function openMoveDialog() {
@@ -3422,6 +3580,25 @@
     $('#btn-delete').addEventListener('click', deleteNote);
     $('#btn-review-enroll').addEventListener('click', () => toggleReviewEnroll(state.currentRel));
 
+    // 预览区复制公式：把渲染后的公式还原为 $..$ / $$..$$ 源码，粘贴进编辑器可直接成为公式节点
+    document.addEventListener('copy', (e) => {
+      const noteBody = $('#note-body');
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !noteBody) return;
+      const range = sel.getRangeAt(0);
+      if (!noteBody.contains(range.commonAncestorContainer)) return;
+      const inOf = (node) => (node.nodeType === 1 ? node : node.parentElement)?.closest('.math-inline, .math-block');
+      const startMath = inOf(range.startContainer);
+      const endMath = inOf(range.endContainer);
+      // 选区起止都在同一个公式元素内（选中了整段公式）时才接管
+      if (!startMath || startMath !== endMath) return;
+      const latex = startMath.getAttribute('data-latex');
+      if (!latex) return;
+      const out = startMath.classList.contains('math-block') ? '$$\n' + latex + '\n$$' : '$' + latex + '$';
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', out);
+    });
+
     $('#btn-cover').addEventListener('click', () => {
       ui.coverOn = !ui.coverOn;
       saveUI();
@@ -3560,6 +3737,10 @@
     $('#btn-move-newfolder').addEventListener('click', newMoveSubfolder);
     $('#btn-move-cancel').addEventListener('click', () => $('#dialog-move').classList.add('hidden'));
     $('#btn-move-ok').addEventListener('click', confirmMove);
+    $('#btn-share-ok').addEventListener('click', createShare);
+    $('#btn-share-cancel').addEventListener('click', () => $('#dialog-share').classList.add('hidden'));
+    $('#btn-share-copy').addEventListener('click', copyShareLink);
+    $('#btn-cloud-shares').addEventListener('click', loadCloudShares);
 
     document.querySelectorAll('.modal').forEach((m) =>
       m.addEventListener('click', (e) => {

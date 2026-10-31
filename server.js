@@ -140,6 +140,68 @@ function isCloudPath(p) {
   return abs === cd || abs.startsWith(cd + path.sep);
 }
 
+// 云端 sync-server 通用请求（分享等管理 API 代理，Bearer Token 鉴权）
+async function syncRequest(method, apiPath, body) {
+  const cfg = config.cloud || {};
+  if (!cfg.url || !cfg.token) throw new Error('云端同步未配置，请先在设置中启用');
+  const url = String(cfg.url).replace(/\/+$/, '') + apiPath;
+  const opts = { method, headers: { Authorization: 'Bearer ' + cfg.token } };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+  return data;
+}
+
+// 收集分享范围内的文件路径（相对云端根，posix 分隔）：
+// 目录 → 递归所有 md；并从 md 内容提取 /api/file?rel=_attachments%2F... 附件引用（附件在云端根 _attachments/ 下）
+function collectSharePaths(dirRel) {
+  const cd = cloudDirPath();
+  const clean = String(dirRel || '').trim().replace(/^\/+|\/+$/g, '');
+  const base = clean ? path.join(cd, ...clean.split('/')) : cd;
+  if (!fs.existsSync(base)) throw new Error('分享目标不存在: ' + (clean || '(云端根目录)'));
+  const out = new Set();
+  const addAttachments = (mdAbs) => {
+    let txt = '';
+    try { txt = fs.readFileSync(mdAbs, 'utf8'); } catch { return; }
+    const re = /\/api\/file\?rel=([^)\s"']+)|\(([^)\s"']*\/?_attachments\/[^)\s]+)\)/g;
+    let m;
+    while ((m = re.exec(txt))) {
+      let rel = m[1] ? m[1] : m[2];
+      try { rel = decodeURIComponent(rel); } catch {}
+      rel = rel.replace(/^\.\//, '').replace(/^\/+/, '');
+      if (!rel.startsWith('_attachments/')) continue; // 附件统一在云端根 _attachments/
+      const abs = path.join(cd, ...rel.split('/'));
+      try { if (fs.statSync(abs).isFile()) out.add(rel); } catch {}
+    }
+  };
+  const st = fs.statSync(base);
+  if (st.isFile()) {
+    const rel = (clean || path.basename(base)).split(path.sep).join('/');
+    out.add(rel);
+    if (/\.md$/i.test(rel)) addAttachments(base);
+  } else {
+    const walk = (dir) => {
+      for (const name of fs.readdirSync(dir)) {
+        if (name === '.cognote-sync') continue;
+        const abs = path.join(dir, name);
+        let s;
+        try { s = fs.statSync(abs); } catch { continue; }
+        if (s.isDirectory()) walk(abs);
+        else if (/\.md$/i.test(name)) {
+          out.add(path.relative(cd, abs).split(path.sep).join('/'));
+          addAttachments(abs);
+        }
+      }
+    };
+    walk(base);
+  }
+  return [...out];
+}
+
 const cloudSync = new CloudSync({
   getCloudDir: cloudDirPath,
   getConfig: () => config.cloud || {},
@@ -491,6 +553,48 @@ async function handleApi(pathname, req, res, url) {
     } catch (e) {
       return sendJson(res, 500, { ok: false, error: e.message, status: cloudSync.status() });
     }
+  }
+
+  // ---------- 分享（代理云端 sync-server） ----------
+  // 创建分享：dir = 云端目录内相对路径（'' 表示整个云端目录）
+  if (pathname === '/api/share/create' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!cloudEnabled()) throw new Error('云端同步未启用，无法创建分享');
+    const cd = cloudDirPath();
+    const dir = String(body.dir || '').trim().replace(/^\/+|\/+$/g, '');
+    if (dir) {
+      const abs = path.resolve(cd, ...dir.split('/'));
+      if (abs !== cd && !abs.startsWith(cd + path.sep)) throw new Error('非法分享路径');
+    }
+    const paths = collectSharePaths(dir);
+    if (!paths.length) throw new Error('分享范围内没有可分享的 Markdown 笔记');
+    const data = await syncRequest('POST', '/api/shares/create', {
+      title: String(body.title || '').trim() || dir.split('/').pop() || '云端笔记',
+      paths,
+      password: String(body.password || '').trim(),
+      expireDays: Number(body.expireDays) || 0,
+    });
+    const shareUrl = String((config.cloud || {}).url || '').replace(/\/+$/, '') + '/s/viewer?id=' + data.share.id;
+    return sendJson(res, 200, { ok: true, share: { ...data.share, url: shareUrl } });
+  }
+  // 分享列表
+  if (pathname === '/api/cloud/shares' && req.method === 'GET') {
+    const data = await syncRequest('GET', '/api/shares');
+    const base = String((config.cloud || {}).url || '').replace(/\/+$/, '');
+    const shares = (data.shares || []).map((s) => ({ ...s, url: base + '/s/viewer?id=' + s.id }));
+    return sendJson(res, 200, { ok: true, shares });
+  }
+  // 删除分享
+  if (pathname === '/api/share/delete' && req.method === 'POST') {
+    const body = await readBody(req);
+    await syncRequest('POST', '/api/shares/delete', { id: String(body.id || '').trim() });
+    return sendJson(res, 200, { ok: true });
+  }
+  // 修改查看密码
+  if (pathname === '/api/share/password' && req.method === 'POST') {
+    const body = await readBody(req);
+    await syncRequest('POST', '/api/shares/password', { id: String(body.id || '').trim(), password: String(body.password || '').trim() });
+    return sendJson(res, 200, { ok: true });
   }
 
   // 获取 AI 服务商可用模型列表

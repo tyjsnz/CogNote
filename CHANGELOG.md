@@ -1,5 +1,38 @@
 # 开发日志
 
+## 2026-11-01
+
+### 新增：云端笔记分享（链接 + 查看密码）
+
+- **服务端** `sync-server/`：新增分享存储 `data/shares.json`（原子写盘，id 随机 base64url，
+  salt + sha256 密码哈希，`timingSafeEqual` 恒时比对）；密码尝试限流（同 id+IP 失败 10 次锁 10 分钟）
+- **公开 API**（无需同步 Token，靠查看密码保护）：
+  - `POST /api/public/share/open`：校验密码后返回分享内文件清单（密码错 403 / 过期 410 / 限流 429）
+  - `GET  /api/public/share/file`：按分享路径白名单读取单文件（base64）
+  - `GET  /s/viewer`：分享查看页（自包含 HTML，CDN KaTeX + 内置轻量 markdown 渲染器）
+- **管理 API**（同步 Token 鉴权）：`GET /api/shares`、`POST /api/shares/create`
+  （paths / password≥4 位 / expireDays∈{0,1,7,30}）、`/api/shares/delete`、`/api/shares/password`
+- **客户端代理** `server.js`：`POST /api/share/create`（校验云端路径 + 本地扫描收集
+  `_attachments/` 附件引用，附件在云端根目录、不在笔记前缀下，需单独加入分享范围）、
+  `GET /api/cloud/shares`、`/api/share/delete`、`/api/share/password`，均带 Bearer Token 转发
+- **前端**：云端目录/笔记右键菜单新增「🔗 分享」（仅云端节点显示）；分享对话框
+  自动生成 8 位密码、有效期 1/7/30 天或长期，创建后展示链接 + 密码一键复制；
+  设置 → 云端同步新增「📋 分享管理」（列表 / 复制链接 / 删除）
+- **分享查看页**：密码门 → 侧栏笔记列表 → 正文渲染；笔记内 `/api/file?rel=_attachments%2F…`
+  图片引用自动改写为公开文件接口加载；`sessionStorage` 记住密码避免重复输入
+
+### 修复：从外部复制公式粘贴进编辑器解析不出来
+
+- 根因：`handlePaste` 公式分支先做字符串替换再走 tiptap-markdown 的 markdown 解析，
+  混合文本 + 多公式 / 块级行内混排时解析结果不确定，常把 `$$..$$` 当普通文本留下
+- `splitMathParts` 扩展：支持 `$$..$$`、`\[..\\]`（块级）与 `\(..\)`、`$..$`（行内）四种定界符；
+  货币误伤保护（内侧以空白开头/结尾或纯数字金额不视为公式），被拒时从开 `$` 后一位重扫，
+  保证 `$100 和 $x^2$` 里的真公式不被漏掉
+- 新增 `mathPartsToContent`：直接构建 ProseMirror 节点 JSON（段落 + hardBreak +
+  inlineMath/blockMath），绕过 markdown 字符串解析的不确定路径后 `insertContent` 直插
+- 预览区复制公式：渲染公式时写入 `data-latex`；document 级 `copy` 监听，选区起止在同一
+  公式元素内时把 `$..$` / `$$..$$` 源码写入剪贴板，粘贴回编辑器直接成为公式节点
+
 ## 2026-10-25
 
 ### 新增：云端同步（多设备）

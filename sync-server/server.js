@@ -40,6 +40,10 @@ const FILES_DIR = path.join(config.dataDir, 'files');
 const MANIFEST_PATH = path.join(config.dataDir, 'manifest.json');
 fs.mkdirSync(FILES_DIR, { recursive: true });
 
+// 分享查看页（静态 HTML，加载一次）
+let SHARE_VIEWER_HTML = '<!DOCTYPE html><html><body>分享页未找到</body></html>';
+try { SHARE_VIEWER_HTML = fs.readFileSync(path.join(__dirname, 'share-viewer.html'), 'utf8'); } catch { /* 忽略 */ }
+
 // ---------- manifest ----------
 let manifest = { version: 1, files: {}, deleted: {} };
 try {
@@ -261,6 +265,92 @@ async function applyDelete(rel) {
   return { ok: true, version: manifest.version };
 }
 
+// ---------- 分享 ----------
+// 分享记录：id → { title, paths:[相对files的路径], salt, hash, createdAt, expiresAt(0=长期) }
+const SHARES_PATH = path.join(config.dataDir, 'shares.json');
+let shares = { version: 1, items: {} };
+try { shares = Object.assign(shares, JSON.parse(fs.readFileSync(SHARES_PATH, 'utf8'))); } catch { /* 首次运行 */ }
+
+let _shareQueue = Promise.resolve();
+function saveShares() {
+  _shareQueue = _shareQueue.then(async () => {
+    const tmp = SHARES_PATH + '.tmp';
+    await fsp.writeFile(tmp, JSON.stringify(shares), 'utf8');
+    await fsp.rename(tmp, SHARES_PATH);
+  }).catch((e) => console.error(`[sync] shares 写入失败: ${e.message}`));
+  return _shareQueue;
+}
+
+function passwordHash(salt, password) {
+  return sha256(Buffer.from(String(salt) + '\u0000' + String(password || ''), 'utf8'));
+}
+
+function shareExpired(s) {
+  return s.expiresAt > 0 && Date.now() > s.expiresAt;
+}
+
+function sharePathAllowed(s, p) {
+  return s.paths.some((base) => {
+    const b = base.replace(/\/+$/, '');
+    return p === b || p.startsWith(b + '/');
+  });
+}
+
+// 密码尝试限流：id|ip → { fails, until }
+const shareFails = new Map();
+function shareLocked(id, ip) {
+  const rec = shareFails.get(id + '|' + ip);
+  return !!(rec && rec.until > Date.now());
+}
+function recordShareFail(id, ip) {
+  const key = id + '|' + ip;
+  const rec = shareFails.get(key) || { fails: 0, until: 0 };
+  rec.fails++;
+  if (rec.fails >= 10) { rec.until = Date.now() + 10 * 60000; rec.fails = 0; }
+  shareFails.set(key, rec);
+}
+function clearShareFails(id, ip) { shareFails.delete(id + '|' + ip); }
+
+function clientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return String(xff).split(',')[0].trim();
+  return req.socket.remoteAddress || '';
+}
+
+function guessMime(p) {
+  const ext = path.extname(p).toLowerCase();
+  return {
+    '.md': 'text/markdown; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+    '.json': 'application/json; charset=utf-8',
+  }[ext] || 'application/octet-stream';
+}
+
+// 公开分享校验：返回 { share } 或 { error, status }
+function authShare(req, id, password) {
+  const s = shares.items[id];
+  if (!s) return { error: '分享不存在或已被删除', status: 404 };
+  const ip = clientIp(req);
+  if (shareLocked(id, ip)) return { error: '尝试次数过多，请 10 分钟后再试', status: 429 };
+  const h = passwordHash(s.salt, password);
+  const a = Buffer.from(h);
+  const b = Buffer.from(String(s.hash));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    recordShareFail(id, ip);
+    return { error: '查看密码错误', status: 403 };
+  }
+  clearShareFails(id, ip);
+  if (shareExpired(s)) return { error: '分享已过期', status: 410 };
+  return { share: s };
+}
+
 // ---------- http ----------
 const LIMIT = (Math.max(2, config.maxFileMb) + 2) * 1048576;
 
@@ -272,7 +362,102 @@ const server = http.createServer(async (req, res) => {
       if (!checkToken(req, url)) return sendJson(res, 401, { ok: false, error: 'Token 无效' });
       return sendJson(res, 200, { ok: true, serverTime: Date.now(), version: manifest.version, fileCount: Object.keys(manifest.files).length });
     }
+
+    // ---------- 公开分享接口（无需同步 Token，靠分享密码保护） ----------
+    if (p === '/api/public/share/open' && req.method === 'POST') {
+      const body = await readBody(req, 65536);
+      const id = String(body.id || '').trim();
+      const r = authShare(req, id, body.password);
+      if (r.error) return sendJson(res, r.status, { ok: false, error: r.error });
+      const s = r.share;
+      const files = [];
+      for (const [rel, sf] of Object.entries(manifest.files)) {
+        if (sharePathAllowed(s, rel)) files.push({ path: rel, size: sf.size, mtimeMs: sf.mtimeMs });
+      }
+      files.sort((a, b2) => a.path.localeCompare(b2.path));
+      return sendJson(res, 200, {
+        ok: true,
+        title: s.title || '分享笔记',
+        paths: s.paths,
+        expiresAt: s.expiresAt,
+        files,
+      });
+    }
+    if (p === '/api/public/share/file' && req.method === 'GET') {
+      const id = (url.searchParams.get('id') || '').trim();
+      const rel = safeRel(url.searchParams.get('path'));
+      const r = authShare(req, id, url.searchParams.get('password'));
+      if (r.error) return sendJson(res, r.status, { ok: false, error: r.error });
+      if (!rel) return sendJson(res, 400, { ok: false, error: '非法路径' });
+      if (!sharePathAllowed(r.share, rel)) return sendJson(res, 403, { ok: false, error: '该文件不在分享范围内' });
+      if (!manifest.files[rel]) return sendJson(res, 404, { ok: false, error: '文件不存在' });
+      let buf;
+      try { buf = await fsp.readFile(absOf(rel)); } catch { return sendJson(res, 404, { ok: false, error: '文件不存在' }); }
+      return sendJson(res, 200, { ok: true, path: rel, content: buf.toString('base64'), mime: guessMime(rel) });
+    }
+    if (p === '/s/viewer' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(SHARE_VIEWER_HTML);
+    }
+
     if (!checkToken(req, url)) return sendJson(res, 401, { ok: false, error: 'Token 无效' });
+
+    // ---------- 分享管理（同步 Token 鉴权） ----------
+    if (p === '/api/shares' && req.method === 'GET') {
+      const list = Object.entries(shares.items).map(([id, s]) => ({
+        id,
+        title: s.title || '',
+        paths: s.paths,
+        createdAt: s.createdAt,
+        expiresAt: s.expiresAt,
+        expired: shareExpired(s),
+      }));
+      list.sort((a, b2) => b2.createdAt - a.createdAt);
+      return sendJson(res, 200, { ok: true, shares: list });
+    }
+    if (p === '/api/shares/create' && req.method === 'POST') {
+      const body = await readBody(req, 65536);
+      const rawPaths = Array.isArray(body.paths) ? body.paths : [];
+      const paths = [...new Set(rawPaths.map((x) => safeRel(x)).filter(Boolean))];
+      if (!paths.length) return sendJson(res, 400, { ok: false, error: '缺少分享路径' });
+      const password = String(body.password || '').trim();
+      if (password.length < 4) return sendJson(res, 400, { ok: false, error: '查看密码至少 4 位' });
+      const days = Number(body.expireDays) || 0; // 0=长期, 1/7/30
+      if (![0, 1, 7, 30].includes(days)) return sendJson(res, 400, { ok: false, error: '有效期仅支持 1/7/30 天或长期' });
+      const id = crypto.randomBytes(9).toString('base64url');
+      const salt = crypto.randomBytes(8).toString('hex');
+      shares.items[id] = {
+        title: String(body.title || '').slice(0, 100),
+        paths,
+        salt,
+        hash: passwordHash(salt, password),
+        createdAt: Date.now(),
+        expiresAt: days > 0 ? Date.now() + days * 86400000 : 0,
+      };
+      await saveShares();
+      const s = shares.items[id];
+      return sendJson(res, 200, { ok: true, share: { id, title: s.title, paths: s.paths, createdAt: s.createdAt, expiresAt: s.expiresAt } });
+    }
+    if (p === '/api/shares/delete' && req.method === 'POST') {
+      const body = await readBody(req, 65536);
+      const id = String(body.id || '').trim();
+      if (!shares.items[id]) return sendJson(res, 404, { ok: false, error: '分享不存在' });
+      delete shares.items[id];
+      await saveShares();
+      return sendJson(res, 200, { ok: true });
+    }
+    if (p === '/api/shares/password' && req.method === 'POST') {
+      const body = await readBody(req, 65536);
+      const id = String(body.id || '').trim();
+      const s = shares.items[id];
+      if (!s) return sendJson(res, 404, { ok: false, error: '分享不存在' });
+      const password = String(body.password || '').trim();
+      if (password.length < 4) return sendJson(res, 400, { ok: false, error: '查看密码至少 4 位' });
+      s.salt = crypto.randomBytes(8).toString('hex');
+      s.hash = passwordHash(s.salt, password);
+      await saveShares();
+      return sendJson(res, 200, { ok: true });
+    }
 
     if (p === '/api/sync' && req.method === 'POST') {
       const body = await readBody(req, LIMIT);

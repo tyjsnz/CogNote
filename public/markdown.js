@@ -13,7 +13,7 @@
   function renderBlockMath(latex) {
     if (global.katex) {
       try {
-        return '<span class="math-block">' + global.katex.renderToString(latex, { displayMode: true, throwOnError: false, strict: false }) + '</span>';
+        return '<span class="math-block" data-latex="' + escapeHtml(latex) + '">' + global.katex.renderToString(latex, { displayMode: true, throwOnError: false, strict: false }) + '</span>';
       } catch (e) {
         /* fall through */
       }
@@ -24,7 +24,7 @@
   function renderInlineMath(latex) {
     if (global.katex) {
       try {
-        return '<span class="math-inline">' + global.katex.renderToString(latex, { throwOnError: false, strict: false }) + '</span>';
+        return '<span class="math-inline" data-latex="' + escapeHtml(latex) + '">' + global.katex.renderToString(latex, { throwOnError: false, strict: false }) + '</span>';
       } catch (e) {
         return '<span class="math-fallback">' + escapeHtml(latex) + '</span>';
       }

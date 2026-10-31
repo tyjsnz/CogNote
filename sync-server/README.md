@@ -1,13 +1,15 @@
 # Cognote 云端同步服务端
 
-零依赖 Node.js 服务（兼容 Node 16+），为 Cognote 桌面端提供云端笔记存储与双向同步。
+零依赖 Node.js 服务（兼容 Node 16+），为 Cognote 桌面端提供云端笔记存储、双向同步与笔记分享。
 
 ## 特性
 
-- **Token 鉴权**：所有 API 需要 `Authorization: Bearer <token>`
+- **Token 鉴权**：同步/管理 API 需要 `Authorization: Bearer <token>`
 - **差异同步**：客户端按文件 hash 比对，只传输变更内容
 - **冲突保护**：双方同时修改时按修改时间新者胜，败方保存为「冲突副本」，不丢数据
 - **删除传播**：本地删除会同步删除云端，云端删除会同步删除本地（带 tombstone，避免误删新内容）
+- **笔记分享**：生成「链接 + 查看密码」的公开阅读页，支持 1/7/30 天或长期有效，
+  密码错误限流（同 IP 失败 10 次锁 10 分钟）
 - **零依赖**：只用 Node 内置模块，无需 npm install
 - **原子写盘**：清单文件 temp + rename，避免断电写坏
 
@@ -15,11 +17,13 @@
 
 ```
 sync-server/
-├── server.js          # 同步服务
+├── server.js          # 同步 + 分享服务
+├── share-viewer.html  # 分享查看页（自包含 HTML，被 /s/viewer 返回）
 ├── config.json        # 配置（首次启动自动生成 token）
 └── data/
     ├── files/         # 笔记与附件（按相对路径存储）
-    └── manifest.json  # 文件清单（hash / mtime / 版本号）
+    ├── manifest.json  # 文件清单（hash / mtime / 版本号）
+    └── shares.json    # 分享记录（id / 路径白名单 / 密码哈希 / 有效期）
 ```
 
 `config.json`：
@@ -111,7 +115,7 @@ NGINX
 
 ## API
 
-所有接口都需要 Token（`Authorization: Bearer <token>` 或 `?token=`）。
+### 同步 / 管理（需 Token：`Authorization: Bearer <token>` 或 `?token=`）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -120,6 +124,28 @@ NGINX
 | GET | `/api/file?path=` | 下载单个文件（base64） |
 | PUT | `/api/file` | 上传/覆盖 `{path, content(base64), mtimeMs}` |
 | POST | `/api/file/delete` | 删除云端文件 `{path}` |
+| GET | `/api/shares` | 分享列表（id / 标题 / 路径 / 有效期 / 是否过期） |
+| POST | `/api/shares/create` | 创建分享 `{title, paths[], password(≥4位), expireDays(0/1/7/30)}` |
+| POST | `/api/shares/delete` | 删除分享 `{id}`（链接立即失效） |
+| POST | `/api/shares/password` | 修改查看密码 `{id, password}` |
+
+### 公开（无需 Token，靠分享查看密码保护）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/s/viewer?id=` | 分享查看页（HTML） |
+| POST | `/api/public/share/open` | 校验密码 `{id, password}` → 文件清单 |
+| GET | `/api/public/share/file` | 读取分享内文件 `?id=&password=&path=`（base64） |
+
+密码错误返回 403 并计数，同 id + IP 失败 10 次锁定 10 分钟（429）；分享过期返回 410。
+
+### 分享链接格式
+
+```
+http://你的域名/knowledge-sync/s/viewer?id=<分享id>
+```
+
+打开后输入查看密码即可阅读，无需 Cognote 账号或同步 Token。
 
 ## 备份
 

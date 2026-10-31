@@ -240,6 +240,39 @@
     </div>
   </div>
 
+  <!-- 分享对话框 -->
+  <div id="dialog-share" class="modal hidden">
+    <div class="modal-box">
+      <h3>🔗 分享到云端</h3>
+      <p class="muted">分享 <b id="share-src"></b>，对方通过链接 + 查看密码即可在线阅读（无需账号）。</p>
+      <label>查看密码
+        <input id="share-password" type="text" placeholder="至少 4 位" autocomplete="off">
+      </label>
+      <label>有效期
+        <select id="share-expire">
+          <option value="1">1 天</option>
+          <option value="7" selected>7 天</option>
+          <option value="30">30 天</option>
+          <option value="0">长期有效</option>
+        </select>
+      </label>
+      <div id="share-result" class="hidden">
+        <div class="settings-label">✅ 分享已创建</div>
+        <label>分享链接
+          <input id="share-link" type="text" readonly>
+        </label>
+        <label>查看密码
+          <input id="share-pw-show" type="text" readonly>
+        </label>
+        <button id="btn-share-copy" class="link-btn">📋 复制链接和密码</button>
+      </div>
+      <div class="modal-foot">
+        <button id="btn-share-cancel" class="link-btn">关闭</button>
+        <button id="btn-share-ok" class="primary-btn">创建分享</button>
+      </div>
+    </div>
+  </div>
+
 <div id="dialog-settings" class="modal hidden">
     <div class="modal-box modal-wide">
       <h3>⚙️ 设置</h3>
@@ -293,8 +326,10 @@
       <div class="cloud-actions">
         <button type="button" id="btn-cloud-test" class="link-btn">🔌 测试连接</button>
         <button type="button" id="btn-cloud-sync-now" class="link-btn">🔄 立即同步</button>
+        <button type="button" id="btn-cloud-shares" class="link-btn">📋 分享管理</button>
         <span id="cfg-cloud-status" class="muted cloud-settings-status">未启用</span>
       </div>
+      <div id="cloud-share-list" class="hidden"></div>
       <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
       <label>AI 服务商
         <select id="cfg-ai-provider" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;">
