@@ -337,6 +337,7 @@ function guessMime(p) {
 function authShare(req, id, password) {
   const s = shares.items[id];
   if (!s) return { error: '分享不存在或已被删除', status: 404 };
+  if (s.disabled) return { error: '分享已被停用', status: 410 };
   const ip = clientIp(req);
   if (shareLocked(id, ip)) return { error: '尝试次数过多，请 10 分钟后再试', status: 429 };
   const h = passwordHash(s.salt, password);
@@ -349,6 +350,23 @@ function authShare(req, id, password) {
   clearShareFails(id, ip);
   if (shareExpired(s)) return { error: '分享已过期', status: 410 };
   return { share: s };
+}
+
+// 记录一次分享浏览（open 成功时）：总数 + 按天计数
+function recordShareView(s) {
+  const now = Date.now();
+  s.views = (s.views || 0) + 1;
+  s.lastViewAt = now;
+  const day = new Date(now).toISOString().slice(0, 10);
+  s.viewDays = s.viewDays || {};
+  s.viewDays[day] = (s.viewDays[day] || 0) + 1;
+}
+
+// 记录一次笔记阅读（file 成功且为 md 时）：per-path 计数
+function recordFileView(s, rel) {
+  if (!/\.md$/i.test(rel)) return;
+  s.fileViews = s.fileViews || {};
+  s.fileViews[rel] = (s.fileViews[rel] || 0) + 1;
 }
 
 // ---------- http ----------
@@ -375,6 +393,8 @@ const server = http.createServer(async (req, res) => {
         if (sharePathAllowed(s, rel)) files.push({ path: rel, size: sf.size, mtimeMs: sf.mtimeMs });
       }
       files.sort((a, b2) => a.path.localeCompare(b2.path));
+      recordShareView(s);
+      await saveShares();
       return sendJson(res, 200, {
         ok: true,
         title: s.title || '分享笔记',
@@ -393,6 +413,9 @@ const server = http.createServer(async (req, res) => {
       if (!manifest.files[rel]) return sendJson(res, 404, { ok: false, error: '文件不存在' });
       let buf;
       try { buf = await fsp.readFile(absOf(rel)); } catch { return sendJson(res, 404, { ok: false, error: '文件不存在' }); }
+      // 阅读统计：每次成功读取 md 笔记 +1（图片等资源不计）
+      recordFileView(r.share, rel);
+      await saveShares();
       return sendJson(res, 200, { ok: true, path: rel, content: buf.toString('base64'), mime: guessMime(rel) });
     }
     if (p === '/s/viewer' && req.method === 'GET') {
@@ -411,6 +434,11 @@ const server = http.createServer(async (req, res) => {
         createdAt: s.createdAt,
         expiresAt: s.expiresAt,
         expired: shareExpired(s),
+        disabled: !!s.disabled,
+        views: s.views || 0,
+        lastViewAt: s.lastViewAt || 0,
+        viewDays: s.viewDays || {},
+        fileViews: s.fileViews || {},
       }));
       list.sort((a, b2) => b2.createdAt - a.createdAt);
       return sendJson(res, 200, { ok: true, shares: list });
@@ -433,6 +461,11 @@ const server = http.createServer(async (req, res) => {
         hash: passwordHash(salt, password),
         createdAt: Date.now(),
         expiresAt: days > 0 ? Date.now() + days * 86400000 : 0,
+        disabled: false,
+        views: 0,
+        lastViewAt: 0,
+        viewDays: {},
+        fileViews: {},
       };
       await saveShares();
       const s = shares.items[id];
@@ -445,6 +478,17 @@ const server = http.createServer(async (req, res) => {
       delete shares.items[id];
       await saveShares();
       return sendJson(res, 200, { ok: true });
+    }
+    // 停用 / 启用（停用后链接立即无法打开，数据与统计保留，可随时恢复）
+    if (p === '/api/shares/toggle' && req.method === 'POST') {
+      const body = await readBody(req, 65536);
+      const id = String(body.id || '').trim();
+      const s = shares.items[id];
+      if (!s) return sendJson(res, 404, { ok: false, error: '分享不存在' });
+      if (typeof body.disabled !== 'boolean') return sendJson(res, 400, { ok: false, error: '缺少 disabled 参数' });
+      s.disabled = body.disabled;
+      await saveShares();
+      return sendJson(res, 200, { ok: true, disabled: s.disabled });
     }
     if (p === '/api/shares/password' && req.method === 'POST') {
       const body = await readBody(req, 65536);

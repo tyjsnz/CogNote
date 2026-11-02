@@ -590,6 +590,12 @@ async function handleApi(pathname, req, res, url) {
     await syncRequest('POST', '/api/shares/delete', { id: String(body.id || '').trim() });
     return sendJson(res, 200, { ok: true });
   }
+  // 停用 / 启用分享
+  if (pathname === '/api/share/toggle' && req.method === 'POST') {
+    const body = await readBody(req);
+    const data = await syncRequest('POST', '/api/shares/toggle', { id: String(body.id || '').trim(), disabled: !!body.disabled });
+    return sendJson(res, 200, data);
+  }
   // 修改查看密码
   if (pathname === '/api/share/password' && req.method === 'POST') {
     const body = await readBody(req);

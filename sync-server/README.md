@@ -124,10 +124,14 @@ NGINX
 | GET | `/api/file?path=` | 下载单个文件（base64） |
 | PUT | `/api/file` | 上传/覆盖 `{path, content(base64), mtimeMs}` |
 | POST | `/api/file/delete` | 删除云端文件 `{path}` |
-| GET | `/api/shares` | 分享列表（id / 标题 / 路径 / 有效期 / 是否过期） |
+| GET | `/api/shares` | 分享列表（状态 / 有效期 / 浏览统计） |
 | POST | `/api/shares/create` | 创建分享 `{title, paths[], password(≥4位), expireDays(0/1/7/30)}` |
-| POST | `/api/shares/delete` | 删除分享 `{id}`（链接立即失效） |
+| POST | `/api/shares/toggle` | 停用/启用 `{id, disabled}`（停用返回 410，数据与统计保留） |
+| POST | `/api/shares/delete` | 删除分享 `{id}`（链接与统计永久删除） |
 | POST | `/api/shares/password` | 修改查看密码 `{id, password}` |
+
+公开接口在密码验证通过后累计浏览统计：`views`（open 次数）、`viewDays`（按天）、
+`fileViews`（每篇 md 笔记被读取次数，图片不计），随分享记录存于 `shares.json`。
 
 ### 公开（无需 Token，靠分享查看密码保护）
 

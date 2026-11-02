@@ -2636,6 +2636,32 @@
   }
 
   // 设置 → 分享管理列表
+  // 分享统计行：总浏览、今日、最近浏览 + 每篇笔记阅读明细（可展开）
+  function shareStatsHtml(s) {
+    const today = new Date().toISOString().slice(0, 10);
+    const views = s.views || 0;
+    const todayViews = (s.viewDays || {})[today] || 0;
+    const last = s.lastViewAt ? new Date(s.lastViewAt).toLocaleString() : '从未';
+    const fv = Object.entries(s.fileViews || {}).sort((a, b) => b[1] - a[1]);
+    const fvHtml = fv.length
+      ? fv.map(([p, n]) => '<div style="display:flex;gap:8px;"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(p.split('/').pop()) + '</span><span style="flex:none;">' + n + ' 次</span></div>').join('')
+      : '<div class="muted">暂无笔记阅读记录</div>';
+    return (
+      '<div class="share-stats muted" style="font-size:12px;padding:2px 0 8px;">' +
+      '👁 总浏览 <b style="color:var(--text);">' + views + '</b> 次 · 今日 <b style="color:var(--text);">' + todayViews + '</b> 次 · 最近 ' + esc(last) +
+      '<div class="share-detail hidden" style="margin-top:6px;padding:8px 10px;background:var(--bg,#f6f7f9);border-radius:6px;">' +
+      '<div style="font-weight:600;margin-bottom:4px;">📝 各笔记阅读次数</div>' + fvHtml +
+      '</div></div>'
+    );
+  }
+
+  function shareStatusHtml(s) {
+    if (s.disabled) return '<span style="flex:none;color:#d97706;">⏸ 已停用</span>';
+    if (s.expired) return '<span style="flex:none;color:#d33;">已过期</span>';
+    if (s.expiresAt) return '<span class="muted" style="flex:none;">至 ' + new Date(s.expiresAt).toLocaleDateString() + '</span>';
+    return '<span class="muted" style="flex:none;">长期有效</span>';
+  }
+
   async function loadCloudShares() {
     const box = $('#cloud-share-list');
     box.classList.remove('hidden');
@@ -2646,13 +2672,19 @@
       if (!list.length) { box.innerHTML = '<div class="muted" style="font-size:13px;">暂无分享。在云端目录上右键 →「🔗 分享」创建。</div>'; return; }
       box.innerHTML = list
         .map((s) => {
-          const exp = s.expired ? '<span style="color:#d33;">已过期</span>' : s.expiresAt ? '至 ' + new Date(s.expiresAt).toLocaleDateString() : '长期有效';
+          const dim = s.disabled ? 'opacity:.6;' : '';
           return (
-            '<div class="share-row" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+            '<div class="share-row" style="' + dim + 'display:flex;flex-direction:column;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+            '<div style="display:flex;gap:8px;align-items:center;">' +
             '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(s.paths.join(', ')) + '">' + esc(s.title || '(未命名)') + '</span>' +
-            '<span class="muted" style="flex:none;">' + exp + '</span>' +
+            shareStatusHtml(s) +
+            '<span class="muted" style="flex:none;">👁 ' + (s.views || 0) + '</span>' +
             '<button class="link-btn share-copy-link" data-url="' + escAttr(s.url) + '" style="flex:none;">复制链接</button>' +
+            '<button class="link-btn share-toggle" data-id="' + escAttr(s.id) + '" data-disabled="' + (s.disabled ? '0' : '1') + '" style="flex:none;">' + (s.disabled ? '▶️ 启用' : '⏸ 停用') + '</button>' +
+            '<button class="link-btn share-stats-btn" style="flex:none;">📊 统计</button>' +
             '<button class="link-btn share-del" data-id="' + escAttr(s.id) + '" style="flex:none;color:#d33;">删除</button>' +
+            '</div>' +
+            shareStatsHtml(s) +
             '</div>'
           );
         })
@@ -2660,9 +2692,30 @@
       box.querySelectorAll('.share-copy-link').forEach((b) =>
         b.addEventListener('click', () => copyText(b.dataset.url).then(() => toast('链接已复制（访问需查看密码）')))
       );
+      // 统计展开/收起
+      box.querySelectorAll('.share-stats-btn').forEach((b) =>
+        b.addEventListener('click', () => {
+          const detail = b.closest('.share-row').querySelector('.share-detail');
+          detail.classList.toggle('hidden');
+        })
+      );
+      // 停用 / 启用
+      box.querySelectorAll('.share-toggle').forEach((b) =>
+        b.addEventListener('click', async () => {
+          const disabled = b.dataset.disabled === '1';
+          if (disabled && !confirm('停用后该链接将立即无法访问（数据和统计保留，可随时启用）。确定停用？')) return;
+          try {
+            await api('/api/share/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id, disabled }) });
+            toast(disabled ? '分享已停用' : '分享已启用');
+            loadCloudShares();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        })
+      );
       box.querySelectorAll('.share-del').forEach((b) =>
         b.addEventListener('click', async () => {
-          if (!confirm('确定删除该分享？链接将立即失效。')) return;
+          if (!confirm('确定删除该分享？链接与统计数据将永久删除，无法恢复。')) return;
           try {
             await api('/api/share/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }) });
             toast('分享已删除');
