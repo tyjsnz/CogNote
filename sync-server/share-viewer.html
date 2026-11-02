@@ -209,6 +209,8 @@
   function openShare() {
     var err = document.getElementById('gate-err');
     var btn = document.getElementById('btn-open');
+    // 读取输入框中用户输入的密码（首次访问 sessionStorage 为空）
+    pw = (document.getElementById('pw').value || '').trim();
     err.textContent = '';
     btn.disabled = true;
     fetch(apiUrl('share/open'), {
