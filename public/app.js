@@ -1729,28 +1729,39 @@
   }
 
   // ---------- 数学公式：$..$ / $$..$$ / \(..\) / \[.. \] 文本 → 公式节点 ----------
-  // 支持的定界符：$$..$$（块级）、\[..\]（块级）、\(..\)（行内）、$..$（行内）
+  // 支持的定界符：$$..$$（块级）、\[..\]（块级）、\(..\)（行内）、$..$（行内），
+  // 以及外部文档常见转义形式：\\(..\\)、\\[..\\]、\$..\$（定界符前允许多个反斜杠）
   // 货币保护：$ 两侧紧贴空白或内容为纯数字金额时不视为公式
+
+  // 双转义公式内容规范化：\\frac → \frac（双转义命令），\\\\ → \\（双转义换行）；
+  // 单反斜杠换行 \\ 后跟换行/空格/& 等的合法用法保留不动
+  function normalizeLatex(s) {
+    return s
+      .replace(/\\\\\\\\/g, '\\\\')
+      .replace(/\\\\([a-zA-Z])/g, '\\$1');
+  }
+
   function splitMathParts(src) {
-    const re = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/g;
+    const re = /\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g;
     let last = 0;
     let m;
     let parts = null;
+    const isCurrency = (inner) => /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner);
     while ((m = re.exec(src))) {
       let math = null;
       let block = false;
-      if (m[1] !== undefined) { math = m[1].trim(); block = true; }
-      else if (m[2] !== undefined) { math = m[2].trim(); block = true; }
-      else if (m[3] !== undefined) { math = m[3].trim(); }
+      if (m[1] !== undefined) { math = normalizeLatex(m[1].trim()); block = true; }
+      else if (m[2] !== undefined) { math = normalizeLatex(m[2].trim()); block = true; }
+      else if (m[3] !== undefined) { math = normalizeLatex(m[3].trim()); }
       else {
-        const inner = m[4];
-        // 货币等误伤保护：内侧以空白开头/结尾，或纯数字金额 → 不是公式。
-        // 从开 $ 后一位继续扫描，保证后面的真公式（如 $100 和 $x^2$）不被漏掉
-        if (/^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner)) {
+        // m[4]=\$..\$，m[5]=$..$：货币等误伤保护。
+        // 从开定界符后一位继续扫描，保证后面的真公式（如 $100 和 $x^2$）不被漏掉
+        const inner = m[4] !== undefined ? m[4] : m[5];
+        if (isCurrency(inner)) {
           re.lastIndex = m.index + 1;
           continue;
         }
-        math = inner.trim();
+        math = normalizeLatex(inner.trim());
       }
       if (!math) continue;
       if (!parts) parts = [];
@@ -1802,7 +1813,10 @@
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const v = node.nodeValue;
-        if (!v || v.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
+        // $..$ / \(..\) / \[..\] 任一形态都可能含公式（双转义 \\(..\\) 也含子串 \(..\)
+        if (!v || (v.indexOf('$') === -1 && v.indexOf('\\(') === -1 && v.indexOf('\\[') === -1)) {
+          return NodeFilter.FILTER_REJECT;
+        }
         let el = node.parentElement;
         while (el && el !== root) {
           if (skipTags[el.tagName] || el.hasAttribute('data-inline-math') || el.hasAttribute('data-block-math')) {

@@ -97,15 +97,41 @@
   }
 
   // 轻量 Markdown 渲染（常用语法 + 公式）
+  // 提取顺序：代码块 → 行内代码 → 公式 → 转义/格式规则 → 最后恢复占位符
   function md(src) {
-    var s = esc(src);
+    var s = src;
     var mathCache = [];
     function stash(html) { mathCache.push(html); return '\u0000KX' + (mathCache.length-1) + '\u0000'; }
-    // 先提取公式（未转义的 $/$$ —— 上面 esc 不影响 $）
-    s = s.replace(/\$\$([\s\S]+?)\$\$/g, function(_, m){ return stash('<span class="math-block" data-latex="'+esc(m.trim())+'"></span>'); });
-    s = s.replace(/\$([^$\n]+?)\$/g, function(_, m){ return stash('<span class="math-inline" data-latex="'+esc(m.trim())+'"></span>'); });
-    // 代码块
-    s = s.replace(/```([\s\S]*?)```/g, function(_, c){ return stash('<pre><code>'+c.replace(/^\w*\n/,'')+'</code></pre>'); });
+    // 双转义公式内容规范化（与主应用 markdown.js 同款）
+    function normalizeLatex(t) {
+      return t.replace(/\\\\\\\\/g, '\\\\').replace(/\\\\([a-zA-Z])/g, '\\$1');
+    }
+    // 1. 代码块优先提取：其中的 $、\\ 不被公式/转义规则误伤（内容在此转义，存最终 HTML）
+    s = s.replace(/```([\s\S]*?)```/g, function(_, c){ return stash('<pre><code>'+esc(c.replace(/^\w*\n/, ''))+'</code></pre>'); });
+    // 2. 行内代码
+    s = s.replace(/`([^`]+)`/g, function(_, c){ return stash('<code>'+esc(c)+'</code>'); });
+    // 3. 公式：$..$ / $$..$$ / \(..\) / \[..\] 及双转义 \\(..\\)、\\[..\\]、\$..\$
+    var isCurrency = function(inner) { return /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner); };
+    s = s.replace(/\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g, function(m0, a, b, c, d, e) {
+      var latex = null, block = false;
+      if (a !== undefined) { latex = normalizeLatex(a.trim()); block = true; }
+      else if (b !== undefined) { latex = normalizeLatex(b.trim()); block = true; }
+      else if (c !== undefined) { latex = normalizeLatex(c.trim()); }
+      else {
+        var inner = d !== undefined ? d : e;
+        if (isCurrency(inner)) return m0; // 货币 $5、$10 不是公式
+        latex = normalizeLatex(inner.trim());
+      }
+      if (!latex) return m0;
+      return stash(block
+        ? '<span class="math-block" data-latex="'+esc(latex)+'"></span>'
+        : '<span class="math-inline" data-latex="'+esc(latex)+'"></span>');
+    });
+    // 4. 遗留 Markdown 转义（Vditor 将 $$ 存为 \$ 和 \\）——只作用于非公式非代码文本
+    s = s.replace(/\\\\/g, '\\');
+    s = s.replace(/\\\$/g, '$');
+    // 5. HTML 转义（占位符不受影响）
+    s = esc(s);
     // 标题
     s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>');
     s = s.replace(/^#### (.*)$/gm, '<h4>$1</h4>').replace(/^### (.*)$/gm, '<h3>$1</h3>');

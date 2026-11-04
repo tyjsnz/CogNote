@@ -36,55 +36,69 @@
     return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   }
 
+  // 双转义公式内容规范化：\\\\frac → \frac（双转义命令），\\\\\\\\ → \\\\（双转义换行）；
+  // 单反斜杠换行 \\ 后跟换行/空格/& 等的合法用法保留不动（与 app.js splitMathParts 同款）
+  function normalizeLatex(s) {
+    return s
+      .replace(/\\\\\\\\/g, '\\\\')
+      .replace(/\\\\([a-zA-Z])/g, '\\$1');
+  }
+
   function inline(src) {
     let s = src;
-    // 数学公式优先提取，防止 HTML 转义破坏 < > 等字符
+    // 缓存已渲染的 HTML（公式 / 行内代码），占位符在所有格式规则执行完后最后恢复，
+    // 防止 ^ → <sup> 等规则误伤公式内容（如 $E=mc^2$）
     const mathCache = [];
+    const ph = (i) => '\u0000KX' + i + '\u0000';
 
-    // 兼容旧版编辑器保存的公式 HTML 节点（须在 \\ 转义处理之前，保留 latex 属性原样）
+    // 1. 兼容旧版编辑器保存的公式 HTML 节点（须在转义处理之前，保留 latex 属性原样）
     s = s.replace(/<div\b[^>]*\bdata-block-math\b[^>]*><\/div>/g, (m) => {
       const am = m.match(/\blatex="([^"]*)"/);
       if (!am || !am[1]) return m;
       mathCache.push(renderBlockMath(unescapeAttr(am[1])));
-      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+      return ph(mathCache.length - 1);
     });
     s = s.replace(/<span\b[^>]*\bdata-inline-math\b[^>]*><\/span>/g, (m) => {
       const am = m.match(/\blatex="([^"]*)"/);
       if (!am || !am[1]) return m;
       mathCache.push(renderInlineMath(unescapeAttr(am[1])));
-      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
+      return ph(mathCache.length - 1);
     });
 
-    // 处理 Markdown 转义序列（Vditor 将 $$ 存为 \$ 和 \\）
-    // \\  → \  先于数学公式 regex，保证 \rightarrow 等 LaTeX 命令正确
+    // 2. 行内代码优先提取：保护其中的 $、\\ 等不被公式提取与转义规则误伤
+    s = s.replace(/`([^`]+)`/g, (_, c) => {
+      mathCache.push('<code>' + escapeHtml(c) + '</code>');
+      return ph(mathCache.length - 1);
+    });
+
+    // 3. 数学公式提取（在 \\ 转义之前，避免破坏 aligned 内合法 \\ 换行与双转义公式）。
+    //    支持 $..$、$$..$$、\(..\)、\[..\] 及外部文档常见双转义 \\(..\\)、\\[..\\]、\$..\$
+    const isCurrency = (inner) => /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner);
+    s = s.replace(/\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g, (m0, a, b, c, d, e) => {
+      let latex = null;
+      let block = false;
+      if (a !== undefined) { latex = normalizeLatex(a.trim()); block = true; }
+      else if (b !== undefined) { latex = normalizeLatex(b.trim()); block = true; }
+      else if (c !== undefined) { latex = normalizeLatex(c.trim()); }
+      else {
+        // d = \$..\$，e = $..$：货币等误伤保护（$5、$10 等不是公式）
+        const inner = d !== undefined ? d : e;
+        if (isCurrency(inner)) return m0;
+        latex = normalizeLatex(inner.trim());
+      }
+      if (!latex) return m0;
+      mathCache.push(block ? renderBlockMath(latex) : renderInlineMath(latex));
+      return ph(mathCache.length - 1);
+    });
+
+    // 4. Markdown 转义序列（Vditor 将 $$ 存为 \$ 和 \\）——只作用于剩余非公式/非代码文本
     s = s.replace(/\\\\/g, '\\');
-    // \$  → $  使 Vditor 保存的 \$...\$ 能被数学公式 regex 正确匹配
     s = s.replace(/\\\$/g, '$');
 
-    s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => {
-      mathCache.push(renderBlockMath(m));
-      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
-    });
-    s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => {
-      mathCache.push(renderInlineMath(m));
-      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
-    });
-    s = s.replace(/\$([^\$\n]+?)\$/g, (_, m) => {
-      mathCache.push(renderInlineMath(m));
-      return '\u0000KX' + (mathCache.length - 1) + '\u0000';
-    });
-
-    // HTML 转义（不影响已提取的数学公式占位符）
+    // 5. HTML 转义（不影响已提取的占位符）
     s = escapeHtml(s);
 
-    // 恢复数学公式
-    if (mathCache.length) {
-      s = s.replace(/\u0000KX(\d+)\u0000/g, (_, n) => mathCache[+n]);
-    }
-
-    // 行内代码
-    s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + escapeHtml(c) + '</code>');
-
+    // 6. 其余格式规则（图片/链接/加粗/上下标等），占位符不含特殊字符不会被误伤
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<img alt="$1" src="$2" title="$3" style="max-width:100%">');
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]+)&quot;)?\)/g, '<a href="$2" title="$3" target="_blank">$1</a>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -92,6 +106,11 @@
     s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
     s = s.replace(/\^([^^]+)\^/g, '<sup>$1</sup>');
+
+    // 7. 最后恢复公式与行内代码
+    if (mathCache.length) {
+      s = s.replace(/\u0000KX(\d+)\u0000/g, (_, n) => mathCache[+n]);
+    }
 
     return s;
   }
@@ -120,16 +139,16 @@
     while (i < lines.length) {
       const line = lines[i];
 
-      // 数学块：单行 $$...$$ / \[...\]
+      // 数学块：单行 $$...$$ / \[...\]（含双转义 \\[..\\]）
       let mBlock = line.match(/^\s*\$\$(.+?)\$\$\s*$/);
       if (mBlock) {
-        html += renderBlockMath(mBlock[1]) + '\n';
+        html += renderBlockMath(normalizeLatex(mBlock[1].trim())) + '\n';
         i++;
         continue;
       }
-      mBlock = line.match(/^\s*\\\[(.+?)\\\]\s*$/);
+      mBlock = line.match(/^\s*\\+\[(.+?)\\+\]\s*$/);
       if (mBlock) {
-        html += renderBlockMath(mBlock[1]) + '\n';
+        html += renderBlockMath(normalizeLatex(mBlock[1].trim())) + '\n';
         i++;
         continue;
       }
@@ -150,15 +169,15 @@
       }
 
       // 多行数学块：以 $$ 或 \[ 开头的行，持续到 $$ 或 \] 为止
-      const blockOpen = line.match(/^\s*(\$\$|\\\[)/);
+      const blockOpen = line.match(/^\s*(\$\$|\\+\[)/);
       if (blockOpen) {
         const isDollar = blockOpen[1] === '$$';
-        const closeRe = isDollar ? /\$\$/ : /\\\]/;
+        const closeRe = isDollar ? /\$\$/ : /\\+\]/;
         const buf = [];
-        let body = line.replace(/^\s*\$\$\s*/, '').replace(/^\s*\\\[\s*/, '');
+        let body = line.replace(/^\s*\$\$\s*/, '').replace(/^\s*\\+\[\s*/, '');
         if (body && closeRe.test(body)) {
-          body = body.replace(/\$\$\s*$/, '').replace(/\\\]\s*$/, '');
-          html += renderBlockMath(body) + '\n';
+          body = body.replace(/\$\$\s*$/, '').replace(/\\+\]\s*$/, '');
+          html += renderBlockMath(normalizeLatex(body.trim())) + '\n';
           i++;
           continue;
         }
@@ -174,7 +193,7 @@
           buf.push(lines[i]);
           i++;
         }
-        html += renderBlockMath(buf.join('\n')) + '\n';
+        html += renderBlockMath(normalizeLatex(buf.join('\n'))) + '\n';
         continue;
       }
 
@@ -276,7 +295,7 @@
         !/^\s*\d+[.)]\s+/.test(lines[i]) &&
         !/^\s*>\s?/.test(lines[i]) &&
         !/^\s*\$\$/.test(lines[i]) &&
-        !/^\s*\\\[/.test(lines[i]) &&
+        !/^\s*\\+\[/.test(lines[i]) &&
         !isTableStart(i) &&
         !/^\s*(\*{3,}|-{3,}|_{3,})\s*$/.test(lines[i])
       ) {
