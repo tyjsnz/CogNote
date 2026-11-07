@@ -52,7 +52,7 @@
 
   // ---------- 主题系统（跟随系统 + 手动切换，localStorage 持久化）----------
   const THEME_KEY = 'kb.theme';
-  const VALID_THEMES = ['system', 'light', 'dark', 'warm'];
+  const VALID_THEMES = ['system', 'light', 'dark', 'warm', 'typora'];
   let themePref = 'system';
   try {
     const v = localStorage.getItem(THEME_KEY);

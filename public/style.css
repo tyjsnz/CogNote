@@ -152,6 +152,51 @@
   --toast-fg: #fdf9f0;
 }
 
+/* ---------- Typora（白底 GitHub 风：经典 Typora 默认观感） ---------- */
+[data-theme="typora"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-glass: rgba(255, 255, 255, .85);
+  --panel-2: #f6f8fa;
+  --pre-bg: #f8f8f8;
+  --pre-fg: #333333;
+
+  --border: #e1e4e8;
+  --border-strong: #d1d5db;
+
+  --text: #333333;
+  --muted: #6a737d;
+  --faint: #959da5;
+
+  --accent: #4183c4;
+  --accent-hover: #336799;
+  --accent-rgb: 65, 131, 196;
+  --accent-bg: rgba(65, 131, 196, .12);
+
+  --danger: #d1242f;
+  --danger-bg: rgba(209, 36, 47, .1);
+  --danger-border: rgba(209, 36, 47, .35);
+  --ok: #1a7f37;
+  --ok-bg: rgba(26, 127, 55, .12);
+  --warn: #9a6700;
+  --warn-bg: rgba(154, 103, 0, .15);
+
+  --code-bg: rgba(27, 31, 35, .05);
+  --mark-bg: #ffdf5d;
+
+  --shadow-1: 0 1px 1px rgba(27, 31, 35, .04);
+  --shadow-2: 0 3px 12px rgba(27, 31, 35, .12);
+  --shadow-3: 0 12px 40px rgba(27, 31, 35, .22);
+  --overlay: rgba(27, 31, 35, .35);
+  --toast-bg: #24292e;
+  --toast-fg: #ffffff;
+
+  /* Typora 文档宽度（#write 默认 ~860px） */
+  --measure: 860px;
+}
+
 html, body { height: 100%; }
 body {
   font-family: var(--font-ui);
@@ -487,6 +532,84 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 .markdown-body .math-fallback { color: var(--danger); background: none; }
 .katex { color: var(--text); }
 
+/* =========================================================
+   Typora 风格排版（仅 [data-theme="typora"] 生效）
+   GitHub 式文档排版：扁平无卡片、16px 正文、带下划线的 h1/h2、
+   灰引用、#f8f8f8 代码块、全边框表格、粗横线 hr
+   ========================================================= */
+[data-theme="typora"] .markdown-body {
+  background: transparent;          /* 整窗即文档，去掉卡片观感 */
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 6px 6px 48px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+[data-theme="typora"] .markdown-body h1,
+[data-theme="typora"] .markdown-body h2,
+[data-theme="typora"] .markdown-body h3,
+[data-theme="typora"] .markdown-body h4,
+[data-theme="typora"] .markdown-body h5,
+[data-theme="typora"] .markdown-body h6 {
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.3;
+  margin: 24px 0 16px;
+}
+[data-theme="typora"] .markdown-body h1 { font-size: 2em; }
+[data-theme="typora"] .markdown-body h2 { font-size: 1.5em; }
+[data-theme="typora"] .markdown-body h3 { font-size: 1.25em; }
+[data-theme="typora"] .markdown-body h4 { font-size: 1em; }
+[data-theme="typora"] .markdown-body h5 { font-size: .875em; }
+[data-theme="typora"] .markdown-body h6 { font-size: .875em; color: var(--muted); }
+[data-theme="typora"] .markdown-body h1 { padding-bottom: .3em; }
+[data-theme="typora"] .markdown-body h2 { padding-bottom: .3em; }
+[data-theme="typora"] .markdown-body p { margin: 0 0 16px; }
+[data-theme="typora"] .markdown-body ul,
+[data-theme="typora"] .markdown-body ol { padding-left: 2em; margin: 0 0 16px; }
+[data-theme="typora"] .markdown-body li { margin: .25em 0; }
+[data-theme="typora"] .markdown-body code {
+  background: #f8f8f8;
+  border: 1px solid rgba(27, 31, 35, .1);
+  border-radius: 4px;
+  padding: .2em .4em;
+  font-size: 85%;
+}
+[data-theme="typora"] .markdown-body pre {
+  background: #f8f8f8;
+  border: none;
+  border-radius: 6px;
+  padding: 16px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+[data-theme="typora"] .markdown-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 100%;
+}
+[data-theme="typora"] .markdown-body blockquote {
+  border-left: 4px solid var(--border-strong);
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding: 0 1em;
+}
+[data-theme="typora"] .markdown-body table { margin: 0 0 16px; }
+[data-theme="typora"] .markdown-body th,
+[data-theme="typora"] .markdown-body td { border: 1px solid var(--border-strong); padding: 6px 13px; }
+[data-theme="typora"] .markdown-body th { background: var(--panel-2); }
+[data-theme="typora"] .markdown-body tbody tr:nth-child(2n) { background: var(--panel-2); }
+[data-theme="typora"] .markdown-body a { color: var(--accent); }
+[data-theme="typora"] .markdown-body hr {
+  border: none;
+  height: .25em;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 24px 0;
+}
+
 /* Code viewer - 优先级高于 .markdown-body pre */
 .markdown-body .code-viewer,
 .markdown-body .code-viewer pre,
@@ -742,6 +865,82 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 #vditor-wrap .tiptap-editor .math-inline:hover { background: rgba(var(--accent-rgb), 0.12); }
 #vditor-wrap .tiptap-editor .math-block { display: block; overflow-x: auto; margin: 0.8em 0; padding: 0.5em 0; text-align: center; cursor: pointer; border-radius: var(--r-s); transition: background var(--dur) var(--ease); }
 #vditor-wrap .tiptap-editor .math-block:hover { background: rgba(var(--accent-rgb), 0.07); }
+
+/* =========================================================
+   Typora 风格排版（编辑态）：与预览同一套 GitHub 式排版，
+   编辑即所见（仅 [data-theme="typora"] 生效）
+   ========================================================= */
+[data-theme="typora"] #editor { max-width: var(--measure); }
+[data-theme="typora"] #vditor-wrap .tiptap-editor {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 6px 6px 40px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor h1,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h2,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h3,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h4,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h5,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h6 {
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.3;
+  margin: 24px 0 16px;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor h1 { font-size: 2em; padding-bottom: .3em; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor h2 { font-size: 1.5em; padding-bottom: .3em; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor h3 { font-size: 1.25em; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor h4 { font-size: 1em; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor h5,
+[data-theme="typora"] #vditor-wrap .tiptap-editor h6 { font-size: .875em; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor p { margin: 0 0 16px; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor ul,
+[data-theme="typora"] #vditor-wrap .tiptap-editor ol { padding-left: 2em; margin: 0 0 16px; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor li { margin: .25em 0; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor code {
+  background: #f8f8f8;
+  border: 1px solid rgba(27, 31, 35, .1);
+  border-radius: 4px;
+  padding: .2em .4em;
+  font-size: 85%;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor pre {
+  background: #f8f8f8;
+  border: none;
+  border-radius: 6px;
+  padding: 16px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 100%;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor blockquote {
+  border-left: 4px solid var(--border-strong);
+  background: none;
+  border-radius: 0;
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding: 0 1em;
+}
+[data-theme="typora"] #vditor-wrap .tiptap-editor table { margin: 0 0 16px; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor th,
+[data-theme="typora"] #vditor-wrap .tiptap-editor td { border: 1px solid var(--border-strong); padding: 6px 13px; }
+[data-theme="typora"] #vditor-wrap .tiptap-editor th { background: var(--panel-2); }
+[data-theme="typora"] #vditor-wrap .tiptap-editor hr {
+  border: none;
+  height: .25em;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 24px 0;
+}
 
 /* 编辑器加载中 */
 .editor-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--muted); }
@@ -1199,10 +1398,11 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 .sw-light { background: linear-gradient(135deg, #ffffff 0 50%, #f0f0f3 50% 100%); }
 .sw-dark { background: linear-gradient(135deg, #2c2c2f 0 50%, #161618 50% 100%); }
 .sw-warm { background: linear-gradient(135deg, #fffdf8 0 50%, #f0e8d8 50% 100%); }
+.sw-typora { background: linear-gradient(135deg, #ffffff 0 50%, #4183c4 50% 100%); }
 
 .theme-swatches {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
   gap: 8px;
   margin-top: 6px;
 }

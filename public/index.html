@@ -28,7 +28,7 @@
     (function () {
       try {
         var p = localStorage.getItem('kb.theme') || 'system';
-        if (['system', 'light', 'dark', 'warm'].indexOf(p) < 0) p = 'system';
+        if (['system', 'light', 'dark', 'warm', 'typora'].indexOf(p) < 0) p = 'system';
         var t = p === 'system'
           ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
           : p;
@@ -62,6 +62,7 @@
           <button type="button" class="theme-opt" data-theme-opt="light"><span class="sw-preview sw-light"></span>浅色<span class="tick">✓</span></button>
           <button type="button" class="theme-opt" data-theme-opt="dark"><span class="sw-preview sw-dark"></span>深色<span class="tick">✓</span></button>
           <button type="button" class="theme-opt" data-theme-opt="warm"><span class="sw-preview sw-warm"></span>暖纸<span class="tick">✓</span></button>
+          <button type="button" class="theme-opt" data-theme-opt="typora"><span class="sw-preview sw-typora"></span>Typora<span class="tick">✓</span></button>
         </div>
       </div>
       <a id="btn-settings" class="btn-link" title="设置" href="#">⚙️</a>
@@ -282,6 +283,7 @@
         <button type="button" class="theme-swatch" data-theme-opt="light"><span class="sw-preview sw-light"></span>浅色<span class="tick">✓</span></button>
         <button type="button" class="theme-swatch" data-theme-opt="dark"><span class="sw-preview sw-dark"></span>深色<span class="tick">✓</span></button>
         <button type="button" class="theme-swatch" data-theme-opt="warm"><span class="sw-preview sw-warm"></span>暖纸<span class="tick">✓</span></button>
+        <button type="button" class="theme-swatch" data-theme-opt="typora"><span class="sw-preview sw-typora"></span>Typora<span class="tick">✓</span></button>
       </div>
       <label>笔记目录（每行一个路径）
         <textarea id="cfg-notesdirs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-top:4px;font-size:13px;font-family:monospace;resize:vertical;" placeholder="D:\notes\dir1&#10;D:\notes\dir2"></textarea>

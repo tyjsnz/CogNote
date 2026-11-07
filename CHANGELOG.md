@@ -1,5 +1,28 @@
 # 开发日志
 
+## 2026-11-07
+
+### 新增：Typora 风格主题（白底 GitHub 风，第 5 个主题选项）
+
+- **主题入口**：顶栏 🎨 菜单与设置色板新增「Typora」（`data-theme="typora"`），
+  与 跟随系统/浅色/深色/暖纸 并列，localStorage 持久化；FOUC 引导数组、
+  `VALID_THEMES`、hljs/monaco 映射同步接入（非 dark → github 浅色高亮 + vs 编辑器主题）
+- **色板**（`public/style.css`）：纯白画布、GitHub 经典灰边框（#e1e4e8 / #d1d5db）、
+  #4183c4 经典蓝 accent、#f8f8f8 代码底、#6a737d 次级文字；
+  文档宽度 860px（Typora `#write` 默认宽）
+- **预览排版**（`.markdown-body`，仅 typora 生效）：去卡片扁平化（透明无边框，整窗即文档）、
+  16px/1.75 正文、GitHub 式 h1/h2 带下划线（2em/1.5em/600）、段落 16px 节奏、
+  行内代码小胶囊带边框、#f8f8f8 代码块、灰色 4px 引用条（区别于其它主题的 accent 蓝条）、
+  全边框表格 + 斑马纹、0.25em 粗横线 hr
+- **编辑排版**（TipTap 编辑器）：同一套排版同步到编辑态（编辑即所见），
+  编辑器宽度对齐 `--measure`，透明无边框融入画布
+- **设置色板网格**：`repeat(4, 1fr)` → `auto-fit minmax(74px, 1fr)`，5 项一行自适应不挤压
+- **验证**：新增 typora-theme-test 32 项（色板变量与 :root 对齐、菜单/VALID_THEMES/色板
+  三处双向一致、CSS 括号平衡、编辑态规则）+ 全量回归 116 项全绿；
+  Playwright + Chrome 实测：`data-theme=typora`、预览 h1 32px 下边框 #e1e4e8、
+  hr 4px 灰条 100% 贯穿、正文/侧栏/顶栏纯白、编辑器 16px/28px 透明无边框
+  （计算样式断言 + PIL 像素采样双重确认）
+
 ## 2026-11-04
 
 ### 修复：裸公式 / 残缺定界符不被解析（用户报告案例）
