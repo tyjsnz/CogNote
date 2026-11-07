@@ -41,7 +41,33 @@
   function normalizeLatex(s) {
     return s
       .replace(/\\\\\\\\/g, '\\\\')
-      .replace(/\\\\([a-zA-Z])/g, '\\$1');
+      .replace(/\\\\([a-zA-Z])/g, '\\$1')
+      // markdown 转义的括号/下标还原（KaTeX 中 \[ \] \_ 会报错或显示为字面量）；
+      // 保留 \\[0.5em] 这类行尾间距参数
+      .replace(/\\+\[(?!\s*[\d.]+(?:em|ex|px|pt|cm|mm|in)\])/g, '[')
+      .replace(/\\+\]/g, ']')
+      .replace(/\\+_/g, '_')
+      // 行尾/末尾孤立反斜杠（KaTeX 报错）
+      .replace(/\\+[\s]*$/, '');
+  }
+
+  // 裸公式行识别：无 $ 定界符但明显是 LaTeX 公式（AI 生成/外部文档常见）
+  // 如 "Alt(u) = Alt\_{low} + ... \frac{...}{...}"
+  const STRONG_MATH_CMD = /\\(frac|cdot|times|div|sqrt|sum|prod|int|lim|cos|sin|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|pi|alpha|beta|gamma|delta|Delta|theta|varphi|phi|lambda|mu|nu|rho|sigma|tau|omega|infty|left|right|quad|qquad|begin|end|leq|geq|neq|approx|equiv|partial|nabla|mathbb|mathrm|operatorname|overline|hat|vec|subset|supset|cup|cap|land|lor|forall|exists)\b/;
+  const CJK_RE = /[一-鿿　-〿＀-￯]/;
+  function bareEquationLine(t) {
+    if (!t || t.indexOf('$') !== -1 || t.indexOf('`') !== -1) return false;
+    if (CJK_RE.test(t)) return false;
+    if (t.indexOf('=') === -1) return false;
+    if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(t)) return false; // markdown 结构行
+    return STRONG_MATH_CMD.test(t) || /[_^]\\?\{/.test(t);
+  }
+  // 残缺 $$（只有结尾没有开头，外部/AI 文档常见）；行首 $ 开头的错配交由 inline() 的 caseC 处理
+  function oddDollarLine(t) {
+    if (!t || t[0] === '$' || (t.match(/\$\$/g) || []).length % 2 !== 1) return false;
+    if (t.indexOf('`') !== -1 || CJK_RE.test(t)) return false;
+    if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(t)) return false;
+    return STRONG_MATH_CMD.test(t) || /[_^]\\?\{/.test(t);
   }
 
   function inline(src) {
@@ -74,6 +100,12 @@
     // 3. 数学公式提取（在 \\ 转义之前，避免破坏 aligned 内合法 \\ 换行与双转义公式）。
     //    支持 $..$、$$..$$、\(..\)、\[..\] 及外部文档常见双转义 \\(..\\)、\\[..\\]、\$..\$
     const isCurrency = (inner) => /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner);
+    // 单开双闭错配 $..\$\$（外部/AI 生成文档常见），须在常规 $..$ 之前处理
+    s = s.replace(/\$([^$\n]+?)\$\$(?=\s|$)/g, (m0, a) => {
+      if (isCurrency(a)) return m0;
+      mathCache.push(renderInlineMath(normalizeLatex(a.trim())));
+      return ph(mathCache.length - 1);
+    });
     s = s.replace(/\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g, (m0, a, b, c, d, e) => {
       let latex = null;
       let block = false;
@@ -123,6 +155,28 @@
     function para(text) {
       if (!text.trim()) return '';
       return '<p>' + inline(text) + '</p>';
+    }
+    // 段落逐行处理：裸公式行 / 残缺 $$ 行 → 独立块级公式；其余行合并为普通段落
+    function paraLines(lines) {
+      let out = '';
+      let buf = [];
+      const flush = () => {
+        if (buf.length) { out += '<p>' + inline(buf.join(' ')) + '</p>\n'; buf = []; }
+      };
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (bareEquationLine(t)) {
+          flush();
+          out += renderBlockMath(normalizeLatex(t)) + '\n';
+        } else if (oddDollarLine(t)) {
+          flush();
+          out += renderBlockMath(normalizeLatex(t.replace(/\$\$/g, '').trim())) + '\n';
+        } else {
+          buf.push(ln);
+        }
+      }
+      flush();
+      return out;
     }
     // 判断第 idx 行是否为表格起始行（当前行含 | 且下一行为分隔行）
     function isTableStart(idx) {
@@ -302,7 +356,7 @@
         buf.push(lines[i]);
         i++;
       }
-      html += para(buf.join(' ')) + '\n';
+      html += paraLines(buf) + '\n';
     }
     return html;
   }

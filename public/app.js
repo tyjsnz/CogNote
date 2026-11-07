@@ -1738,11 +1738,37 @@
   function normalizeLatex(s) {
     return s
       .replace(/\\\\\\\\/g, '\\\\')
-      .replace(/\\\\([a-zA-Z])/g, '\\$1');
+      .replace(/\\\\([a-zA-Z])/g, '\\$1')
+      // markdown 转义的括号/下标还原（KaTeX 中 \[ \] \_ 会报错或显示为字面量）；
+      // 保留 \\[0.5em] 这类行尾间距参数
+      .replace(/\\+\[(?!\s*[\d.]+(?:em|ex|px|pt|cm|mm|in)\])/g, '[')
+      .replace(/\\+\]/g, ']')
+      .replace(/\\+_/g, '_')
+      // 行尾/末尾孤立反斜杠（KaTeX 报错）
+      .replace(/\\+[\s]*$/, '');
+  }
+
+  // 裸公式识别（无 $ 定界符但明显是 LaTeX 公式的整段文本）：
+  // 典型来自 AI 生成/外部粘贴的文档，公式未包定界符，如 "Alt(u) = Alt\_{low} + ... \in \[0,1\]"
+  function detectBareEquation(t) {
+    const s = String(t || '').trim();
+    if (!s || s.indexOf('$') !== -1 || s.indexOf('`') !== -1) return null;
+    if (/[一-鿿　-〿＀-￯]/.test(s)) return null; // 含中文/全角字符的是正常行文
+    if (s.indexOf('=') === -1) return null;
+    // 标题/列表/引用等 markdown 结构行不作为公式
+    if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(s)) return null;
+    const strong = /\\(frac|cdot|times|div|sqrt|sum|prod|int|lim|cos|sin|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|pi|alpha|beta|gamma|delta|Delta|theta|varphi|phi|lambda|mu|nu|rho|sigma|tau|omega|infty|left|right|quad|qquad|begin|end|leq|geq|neq|approx|equiv|partial|nabla|mathbb|mathrm|operatorname|overline|hat|vec|subset|supset|cup|cap|land|lor|forall|exists)\b/.test(s);
+    const subscript = /[_^]\\?\{/.test(s); // 含下标或上标（含转义形式）
+    if (!strong && !subscript) return null;
+    return s;
   }
 
   function splitMathParts(src) {
-    const re = /\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g;
+    // 无定界符公式：整段作为块级公式（须在定界符正则之前，
+    // 否则内部 \[0,1\] 等会被拆成独立小公式）。含 $ 的混合文本不满足裸公式条件，不受影响
+    const bare = detectBareEquation(src);
+    if (bare) return [{ math: normalizeLatex(bare), block: true }];
+    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$\$(?=\s|$)|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g;
     let last = 0;
     let m;
     let parts = null;
@@ -1751,12 +1777,17 @@
       let math = null;
       let block = false;
       if (m[1] !== undefined) { math = normalizeLatex(m[1].trim()); block = true; }
-      else if (m[2] !== undefined) { math = normalizeLatex(m[2].trim()); block = true; }
-      else if (m[3] !== undefined) { math = normalizeLatex(m[3].trim()); }
+      else if (m[2] !== undefined) {
+        // m[2] = $..\$\$（单开双闭错配，外部文档常见），货币保护
+        if (isCurrency(m[2])) { re.lastIndex = m.index + 1; continue; }
+        math = normalizeLatex(m[2].trim());
+      }
+      else if (m[3] !== undefined) { math = normalizeLatex(m[3].trim()); block = true; }
+      else if (m[4] !== undefined) { math = normalizeLatex(m[4].trim()); }
       else {
-        // m[4]=\$..\$，m[5]=$..$：货币等误伤保护。
+        // m[5]=\$..\$，m[6]=$..$：货币等误伤保护。
         // 从开定界符后一位继续扫描，保证后面的真公式（如 $100 和 $x^2$）不被漏掉
-        const inner = m[4] !== undefined ? m[4] : m[5];
+        const inner = m[5] !== undefined ? m[5] : m[6];
         if (isCurrency(inner)) {
           re.lastIndex = m.index + 1;
           continue;
@@ -1813,8 +1844,12 @@
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const v = node.nodeValue;
-        // $..$ / \(..\) / \[..\] 任一形态都可能含公式（双转义 \\(..\\) 也含子串 \(..\)
-        if (!v || (v.indexOf('$') === -1 && v.indexOf('\\(') === -1 && v.indexOf('\\[') === -1)) {
+        // $..$ / \(..\) / \[..\] 任一形态都可能含公式（双转义 \\(..\\) 也含子串 \(..\)；
+        // 无定界符但满足裸公式特征（如 "Alt(u) = Alt\_{low} + \frac..."）也接受
+        if (
+          !v ||
+          (v.indexOf('$') === -1 && v.indexOf('\\(') === -1 && v.indexOf('\\[') === -1 && !detectBareEquation(v))
+        ) {
           return NodeFilter.FILTER_REJECT;
         }
         let el = node.parentElement;

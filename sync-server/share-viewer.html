@@ -104,14 +104,60 @@
     function stash(html) { mathCache.push(html); return '\u0000KX' + (mathCache.length-1) + '\u0000'; }
     // 双转义公式内容规范化（与主应用 markdown.js 同款）
     function normalizeLatex(t) {
-      return t.replace(/\\\\\\\\/g, '\\\\').replace(/\\\\([a-zA-Z])/g, '\\$1');
+      return t.replace(/\\\\\\\\/g, '\\\\')
+        .replace(/\\\\([a-zA-Z])/g, '\\$1')
+        .replace(/\\+\[(?!\s*[\d.]+(?:em|ex|px|pt|cm|mm|in)\])/g, '[')
+        .replace(/\\+\]/g, ']')
+        .replace(/\\+_/g, '_')
+        .replace(/\\+[\s]*$/, '');
     }
     // 1. 代码块优先提取：其中的 $、\\ 不被公式/转义规则误伤（内容在此转义，存最终 HTML）
     s = s.replace(/```([\s\S]*?)```/g, function(_, c){ return stash('<pre><code>'+esc(c.replace(/^\w*\n/, ''))+'</code></pre>'); });
     // 2. 行内代码
     s = s.replace(/`([^`]+)`/g, function(_, c){ return stash('<code>'+esc(c)+'</code>'); });
-    // 3. 公式：$..$ / $$..$$ / \(..\) / \[..\] 及双转义 \\(..\\)、\\[..\\]、\$..\$
+    // 3. 裸公式行 / 残缺 $$ 行整行提取（须在全局公式配对之前，防止残缺 $$ 跨行误吞）；
+    //    $$ 多行块内部的行不提取
+    var STRONG_CMD = /\\(frac|cdot|times|div|sqrt|sum|prod|int|lim|cos|sin|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|pi|alpha|beta|gamma|delta|Delta|theta|varphi|phi|lambda|mu|nu|rho|sigma|tau|omega|infty|left|right|quad|qquad|begin|end|leq|geq|neq|approx|equiv|partial|nabla|mathbb|mathrm|operatorname|overline|hat|vec|subset|supset|cup|cap|land|lor|forall|exists)\b/;
+    var CJK_RE = /[一-鿿　-〿＀-￯]/;
+    function bareLine(t) {
+      if (!t || t.indexOf('$') !== -1 || t.indexOf('`') !== -1) return false;
+      if (CJK_RE.test(t) || t.indexOf('=') === -1) return false;
+      if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(t)) return false;
+      return STRONG_CMD.test(t) || /[_^]\\?\{/.test(t);
+    }
+    function oddLine(t) {
+      if (!t || t.charAt(0) === '$' || (t.match(/\$\$/g) || []).length % 2 !== 1) return false;
+      if (t.indexOf('`') !== -1 || CJK_RE.test(t)) return false;
+      if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(t)) return false;
+      return STRONG_CMD.test(t) || /[_^]\\?\{/.test(t);
+    }
+    var inBlock = null; // '$$' 或 '\' 多行公式块，块内行不提取
+    s = s.split('\n').map(function(ln) {
+      var t = ln.trim();
+      if (inBlock === '$$') { if (t.indexOf('$$') !== -1) inBlock = null; return ln; }
+      if (inBlock === ']') { if (/\\+\]/.test(t)) inBlock = null; return ln; }
+      var dollars = (t.match(/\$\$/g) || []).length;
+      if (dollars % 2 === 0) {
+        if (dollars === 0) {
+          if (/^\\+\[/.test(t)) { // \[ 开启多行块（单行完整式交给公式正则）
+            if (/^\\+\[[\s\S]*\\+\]\s*$/.test(t)) return ln;
+            inBlock = ']'; return ln;
+          }
+          if (bareLine(t)) return stash('<span class="math-block" data-latex="'+esc(normalizeLatex(t))+'"></span>');
+        }
+        return ln;
+      }
+      if (t.indexOf('$$') === 0) { inBlock = '$$'; return ln; } // $$ 开启多行块
+      if (oddLine(t)) return stash('<span class="math-block" data-latex="'+esc(normalizeLatex(t.replace(/\$\$/g, '').trim()))+'"></span>');
+      return ln;
+    }).join('\n');
+    // 4. 公式：$..$ / $$..$$ / \(..\) / \[..\] 及双转义 \\(..\\)、\\[..\\]、\$..\$
     var isCurrency = function(inner) { return /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner); };
+    // 单开双闭错配 $..\$\$（外部/AI 生成文档常见），须在常规 $..$ 之前处理
+    s = s.replace(/\$([^$\n]+?)\$\$(?=\s|$)/g, function(m0, a) {
+      if (isCurrency(a)) return m0;
+      return stash('<span class="math-inline" data-latex="'+esc(normalizeLatex(a.trim()))+'"></span>');
+    });
     s = s.replace(/\$\$([\s\S]+?)\$\$|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g, function(m0, a, b, c, d, e) {
       var latex = null, block = false;
       if (a !== undefined) { latex = normalizeLatex(a.trim()); block = true; }
