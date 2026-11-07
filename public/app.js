@@ -919,6 +919,7 @@
         '<div class="note-title">' + esc(title) + '</div>' +
         '<div class="note-path">' + esc(n.rel) + '</div>' +
         renderMarkdown(stripFrontmatter(d.content));
+      fixNoteImages(body, nRel.rel, nRel.dir);
       try { win.print(); } catch (e) { /* 部分浏览器需手动点击导出按钮 */ }
     },
     async rename() {
@@ -1152,6 +1153,38 @@
     }
   }
 
+  // 图片相对路径解析：把笔记中的相对图片路径（如 figures/x.png）解析为
+  // 相对笔记所在目录的 posix 路径（供 /api/file?rel= 使用）。
+  // 返回 null 表示无需改写（外链/绝对路径/data:/锚点等）。
+  function resolveRelImgSrc(src, noteRel) {
+    if (!src) return null;
+    const s = String(src).trim();
+    if (!s) return null;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return null; // http: / data: / blob: / C:
+    if (s.charAt(0) === '/' || s.charAt(0) === '#') return null; // /api/file、站点绝对、锚点
+    let p = s.split(/[?#]/)[0].replace(/\\/g, '/');
+    try { p = decodeURIComponent(p); } catch (e) { /* 保留原样 */ }
+    const base = noteRel && noteRel.includes('/') ? noteRel.slice(0, noteRel.lastIndexOf('/') + 1) : '';
+    const segs = [];
+    for (const seg of (base + p).split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') { segs.pop(); continue; }
+      segs.push(seg);
+    }
+    return segs.length ? segs.join('/') : null;
+  }
+
+  // 把容器内相对图片 src 改写为 /api/file?rel=（仅显示层，不改动 markdown 源）
+  function fixNoteImages(root, noteRel, dir) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    root.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      const rel2 = resolveRelImgSrc(src, noteRel);
+      if (!rel2) return;
+      img.setAttribute('src', '/api/file?rel=' + encodeURIComponent(rel2) + (dir ? '&dir=' + encodeURIComponent(dir) : ''));
+    });
+  }
+
   async function openNote(treeRel) {
     const { rel, dir } = stripDirPrefix(treeRel);
     state.currentRel = rel;
@@ -1266,6 +1299,7 @@
         ? tags.map((t) => '<span class="tag-chip">' + esc(t) + '</span>').join('')
         : '';
       $('#note-body').innerHTML = renderMarkdown(stripFrontmatter(d.content));
+      fixNoteImages($('#note-body'), rel, dir);
       ui.view = { type: 'note', rel: treeRel };
       saveUI();
       renderCover();
@@ -1902,6 +1936,21 @@
         const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
         const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
         const Image = tiptapImage.Image || tiptapImage.default;
+        // 编辑器图片显示层：相对路径按当前笔记目录改写为 /api/file。
+        // 只改 renderHTML，节点 attrs.src 保持原始相对路径，保存 markdown 时原样写回。
+        const NoteImage = Image.extend({
+          renderHTML({ HTMLAttributes }) {
+            const attrs = { ...HTMLAttributes };
+            if (attrs.src) {
+              const rel2 = resolveRelImgSrc(attrs.src, state.currentRel);
+              if (rel2) {
+                attrs.src = '/api/file?rel=' + encodeURIComponent(rel2) +
+                  (state.currentNoteDir ? '&dir=' + encodeURIComponent(state.currentNoteDir) : '');
+              }
+            }
+            return ['img', { ...this.options.HTMLAttributes, ...attrs }];
+          },
+        });
         const Link = tiptapLink.Link || tiptapLink.default;
 
         if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
@@ -2048,7 +2097,7 @@
               }),
               TaskList,
               TaskItem.configure({ nested: true }),
-              Image.configure({
+              NoteImage.configure({
                 inline: true,
                 allowBase64: true,
               }),

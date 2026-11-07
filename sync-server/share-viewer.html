@@ -185,10 +185,12 @@
     // 引用
     s = s.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
     // 图片 / 链接（图片先占位 data-share-src，渲染后统一经公开接口加载）
+    // /api/file?rel= 指向云端根相对路径，前面加 / 标记（避免加载时被拼上笔记目录）；
+    // 其余非外链路径视为笔记目录相对路径
     s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, src2){
       var path = '';
       var api = src2.match(/\/api\/file\?rel=([^&\s"']+)/);
-      if (api) { try { path = decodeURIComponent(api[1]); } catch (e) { path = api[1]; } }
+      if (api) { try { path = '/' + decodeURIComponent(api[1]); } catch (e) { path = '/' + api[1]; } }
       else if (!/^[a-z]+:\/\//i.test(src2) && src2.trim()) path = src2.trim();
       if (!path) return stash('<img src="'+esc(src2)+'" alt="'+esc(alt)+'">');
       return stash('<img data-share-src="'+esc(path)+'" alt="'+esc(alt)+'">');
@@ -213,16 +215,28 @@
     return s;
   }
 
+  // 图片路径解析：根相对路径（/ 开头，来自 /api/file?rel=）不带笔记目录前缀；
+  // 其余相对路径按笔记所在目录解析，并归一 ./ ../ 段
+  function resolveShareImgPath(p, notePath) {
+    if (!p) return '';
+    p = String(p).replace(/\\/g, '/');
+    if (p.charAt(0) !== '/') {
+      var dir = notePath && notePath.indexOf('/') !== -1 ? notePath.slice(0, notePath.lastIndexOf('/') + 1) : '';
+      p = dir + p;
+    }
+    var out = [];
+    p.split('/').forEach(function (seg) {
+      if (!seg || seg === '.') return;
+      if (seg === '..') { out.pop(); return; }
+      out.push(seg);
+    });
+    return out.join('/');
+  }
+
   // 通过公开接口加载图片 → data URL
   function loadImages(root, notePath) {
     root.querySelectorAll('img[data-share-src]').forEach(function (img) {
-      var p = img.getAttribute('data-share-src');
-      // 相对路径按笔记所在目录解析
-      if (p && p.charAt(0) !== '/') {
-        var dir = notePath.indexOf('/') === -1 ? '' : notePath.slice(0, notePath.lastIndexOf('/') + 1);
-        p = dir + p;
-      }
-      p = p.replace(/^\.\//, '').replace(/^\/+/, '');
+      var p = resolveShareImgPath(img.getAttribute('data-share-src'), notePath);
       fetch(apiUrl('share/file?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(pw) + '&path=' + encodeURIComponent(p)))
         .then(function(r){ return r.json(); })
         .then(function(d){

@@ -2,6 +2,27 @@
 
 ## 2026-11-07
 
+### 修复：云端同步/分享笔记中的相对路径图片不显示
+
+**根因**：笔记里 `figures/xxx.png` 这类相对图片被原样渲染为 `<img src="figures/xxx.png">`，
+浏览器按站点根请求 `/figures/xxx.png` → 404。`/api/file` 本身能按笔记目录解析文件，
+但渲染时没有任何环节把相对路径改写为 `/api/file?rel=...`。分享链路另有收集/前缀两组问题。
+
+- **应用预览（`public/app.js`）**：新增 `resolveRelImgSrc()`（相对路径按笔记目录解析，
+  归一 `./` `../`、解码 URL、剥离查询串；外链/data URI/`/api/file` 不改写）与
+  `fixNoteImages()`（DOM 层改写 `img src`）；笔记查看与「导出 PDF」窗口均接入
+- **编辑器（TipTap）**：扩展 `Image.renderHTML` 做显示层改写——节点 `attrs.src` 保持原始
+  相对路径，保存/源码模式仍写回 `figures/...`（真机验证序列化未被 `/api/file` 污染）
+- **分享收集（`server.js collectSharePaths`）**：此前只收 `.md` + `_attachments` 引用，
+  `figures/` 图片漏收导致分享页 403。现补收笔记引用的相对文件（图片/PDF/Office 等），
+  含 `../` 越界防护、不存在文件与外链自动跳过；单文件分享也会带上其引用的图片
+- **分享查看页（`sync-server/share-viewer.html`，已部署生产）**：`/api/file?rel=` 解码出的
+  云端根相对路径以 `/` 标记，避免被错误拼上笔记目录（此前 `_attachments` 图片在分享页也 404）；
+  新增 `resolveShareImgPath()` 统一归一 `./` `../`
+- **验证**：新增 image-sync-test 29 项 + 全量回归 145 项全绿；Playwright 真机端到端：
+  预览与编辑器图片真实加载（naturalWidth=1300）、源码模式保留 `figures/fig04_navigation.png`；
+  本地 sync-server 上传图片+笔记→创建分享→查看页以 data URL 成功加载（120×80）
+
 ### 新增：Typora 风格主题（白底 GitHub 风，第 5 个主题选项）
 
 - **主题入口**：顶栏 🎨 菜单与设置色板新增「Typora」（`data-theme="typora"`），

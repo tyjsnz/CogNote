@@ -157,25 +157,46 @@ async function syncRequest(method, apiPath, body) {
 }
 
 // 收集分享范围内的文件路径（相对云端根，posix 分隔）：
-// 目录 → 递归所有 md；并从 md 内容提取 /api/file?rel=_attachments%2F... 附件引用（附件在云端根 _attachments/ 下）
+// 目录 → 递归所有 md；并从 md 内容提取 ①/api/file?rel=... 引用（含云端根 _attachments/）
+// ②markdown 相对引用（如 figures/xxx.png，按笔记所在目录解析）——保证图片等资源随分享可访问
 function collectSharePaths(dirRel) {
   const cd = cloudDirPath();
   const clean = String(dirRel || '').trim().replace(/^\/+|\/+$/g, '');
   const base = clean ? path.join(cd, ...clean.split('/')) : cd;
   if (!fs.existsSync(base)) throw new Error('分享目标不存在: ' + (clean || '(云端根目录)'));
   const out = new Set();
+  // 相对云端根的 posix 路径 → 存在且不越界则加入分享
+  const addRef = (rel) => {
+    if (!rel) return;
+    const abs = path.resolve(cd, ...rel.split('/'));
+    if (abs !== cd && !abs.startsWith(cd + path.sep)) return; // 防越界
+    try {
+      if (fs.statSync(abs).isFile()) out.add(path.relative(cd, abs).split(path.sep).join('/'));
+    } catch { /* 文件不存在则跳过 */ }
+  };
   const addAttachments = (mdAbs) => {
     let txt = '';
     try { txt = fs.readFileSync(mdAbs, 'utf8'); } catch { return; }
-    const re = /\/api\/file\?rel=([^)\s"']+)|\(([^)\s"']*\/?_attachments\/[^)\s]+)\)/g;
+    const mdDirRel = path.relative(cd, path.dirname(mdAbs)).split(path.sep).join('/');
     let m;
-    while ((m = re.exec(txt))) {
-      let rel = m[1] ? m[1] : m[2];
+    // ① /api/file?rel=...（云端根相对，_attachments 及任意附件路径）
+    const reApi = /\/api\/file\?rel=([^)&\s"']+)/g;
+    while ((m = reApi.exec(txt))) {
+      let rel = m[1];
       try { rel = decodeURIComponent(rel); } catch {}
       rel = rel.replace(/^\.\//, '').replace(/^\/+/, '');
-      if (!rel.startsWith('_attachments/')) continue; // 附件统一在云端根 _attachments/
-      const abs = path.join(cd, ...rel.split('/'));
-      try { if (fs.statSync(abs).isFile()) out.add(rel); } catch {}
+      addRef(rel);
+    }
+    // ② markdown 相对文件引用（图片/PDF/Office 等），按笔记所在目录解析
+    const reMd = /!?\[[^\]]*\]\(([^)\s]+)\)/g;
+    while ((m = reMd.exec(txt))) {
+      let p = m[1];
+      if (!p || /^[a-z][a-z0-9+.-]*:/i.test(p) || p.charAt(0) === '/' || p.charAt(0) === '#') continue;
+      p = p.split(/[?#]/)[0].replace(/\\/g, '/');
+      try { p = decodeURIComponent(p); } catch {}
+      if (!/\.(png|jpe?g|gif|webp|svg|bmp|ico|pdf|docx?|xlsx?|pptx?|zip|txt|csv|mp[34]|webm|wav|ogg)$/i.test(p)) continue;
+      if (p.startsWith('_attachments/')) addRef(p); // 附件统一在云端根 _attachments/
+      else addRef((mdDirRel ? mdDirRel + '/' : '') + p);
     }
   };
   const st = fs.statSync(base);
