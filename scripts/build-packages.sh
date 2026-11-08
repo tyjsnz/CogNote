@@ -173,7 +173,9 @@ write_manifest() {
   UPDATE_BASE_URL="${UPDATE_BASE_URL:-https://cognote.flacn.net/downloads}" node - "$OUT" "$VERSION" "$ROOT" <<'JS'
 const fs = require('fs');
 const path = require('path');
-const [out, version, root] = process.argv.slice(1);
+let args = process.argv.slice(1);
+if (args[0] === '-') args = process.argv.slice(2); // `node -` 时 '-' 也占 argv
+const [out, version, root] = args;
 const base = process.env.UPDATE_BASE_URL || 'https://cognote.flacn.net/downloads';
 
 // SHA256SUMS → { 文件名: 哈希 }
@@ -215,10 +217,10 @@ const manifest = {
   name: 'Cognote',
   version,
   publishedAt: new Date().toISOString(),
-  notes,
+  notes: notes.length > 1000 ? notes.slice(0, 1000) + '…（完整说明见官网 CHANGELOG）' : notes,
   appUpdate: info(`Cognote-AppUpdate-v${version}.zip`),
   packages: plats,
-  syncServer: info(`Cognote-Sync-Server-v${VERSION}.zip`),
+  syncServer: info(`Cognote-Sync-Server-v${version}.zip`),
 };
 fs.writeFileSync(path.join(out, 'latest.json'), JSON.stringify(manifest, null, 2));
 console.log('  完成: latest.json (version=' + version + ', notes=' + notes.length + ' 字)');

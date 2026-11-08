@@ -2,6 +2,20 @@
 
 ## 2026-11-08
 
+### 发布：自动更新功能上线（发行包 + 官网更新源部署）
+
+- 重建 4 平台应用包 + 同步服务端包 + **新增 `Cognote-AppUpdate-v1.0.0.zip`**
+  （应用更新包 5.9 MB）与 **`latest.json` 更新源清单**（版本/更新说明自动摘取
+  CHANGELOG 最新小节，超 1000 字自动截断附完整说明指引）
+- `site/index.html` 5 处哈希前缀更新（windows 115e1077 / macos-arm64 060f8599 /
+  macos-x64 e350c231 / linux 436f3b66 / sync 8409e9a4，linux 体积 47.8→47.9 MB）
+- 部署 `rsync site/ → /www/wwwroot/cognote`，线上实测：页面前缀 = 服务器
+  `sha256sum` = `latest.json` 记录**三方一致**；`latest.json` / `SHA256SUMS.txt` /
+  AppUpdate 包 HEAD 200、Range 206；**AppUpdate 包全量下载后本机 sha256
+  `800da616…` 与服务器完全一致**；真机 Chrome 打开首页无 4xx、无 JS 错误
+- 至此客户端「启动检查更新 → 顶栏徽章 → 一键更新」链路的更新源已就位，
+  当前线上版本 v1.0.0（后续发版只需跑 `build-packages.sh` 并 rsync）
+
 ### 新增：自动更新（检测提示 + 一键更新，仅应用文件）
 
 - **更新机制**：启动时静默检查更新源 `config.update.url`（默认官网
