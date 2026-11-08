@@ -5,6 +5,25 @@
 
 针对个人 Markdown 知识笔记的**本地 Web 智能笔记系统**：自动扫描归类、中文全文检索、AI 知识扩展、快速复习自测，并可在 Web 端直接新建/编辑 Markdown 笔记和代码文件。
 
+## 下载（发行版）
+
+官方页面提供 **Windows / macOS / Linux 三平台绿色便携包**（内置 Node.js 运行时，解压即用，无需安装任何环境）：
+
+| 平台 | 文件 |
+|------|------|
+| Windows x64 | `Cognote-v1.0.0-windows-x64.zip` |
+| macOS（Apple 芯片） | `Cognote-v1.0.0-macos-arm64.zip` |
+| macOS（Intel） | `Cognote-v1.0.0-macos-x64.zip` |
+| Linux x64 | `Cognote-v1.0.0-linux-x64.zip` |
+| 云同步服务端（自建） | `Cognote-Sync-Server-v1.0.0.zip` |
+
+- 页面源码见 [`site/`](site/)（`index.html` 功能介绍与下载 + `deploy.html` 自建云同步部署教程）；
+- 发行包用 `scripts/build-packages.sh` 构建，产物与 SHA256 校验和在 `dist/release/`。
+
+> **云同步需自建服务**：Cognote 不提供官方云端。多设备同步需要你自行部署 `sync-server/`
+> （零依赖 Node.js，步骤见官网「自建云同步部署」页或 [`sync-server/README.md`](sync-server/README.md)），
+> 再在客户端「设置 → 云端同步」填写服务器地址与 Token。
+
 ## 痛点与解决
 
 | 痛点 | 本工具方案 |
@@ -31,7 +50,6 @@
 cognote/
 ├── config.example.json  # 配置模板（复制为 config.json 后填写）
 ├── server.js            # HTTP 服务入口 + API 路由
-├── scripts/rescan.js    # 命令行重新扫描
 ├── src/
 │   ├── tokenize.js      # 中文 bigram + 英文分词
 │   ├── indexer.js       # 扫描 md、提取标题/标签/目录、构建倒排索引
@@ -40,6 +58,10 @@ cognote/
 │   ├── cloudsync.js     # 云端同步引擎（差异同步 / 冲突副本）
 │   └── ai.js            # AI 封装：归类/扩展/摘要/自测/问答
 ├── sync-server/         # 云端同步服务端（部署到服务器，零依赖）
+├── site/                # 官网页面（功能介绍 / 下载 / 自建云同步部署教程）
+├── scripts/
+│   ├── rescan.js        # 命令行重新扫描
+│   └── build-packages.sh # 构建三平台绿色便携包 + SHA256 校验和
 └── public/              # 前端单页应用
 ```
 

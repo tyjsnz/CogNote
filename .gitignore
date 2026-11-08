@@ -33,3 +33,6 @@ npm-debug.log*
 public/vendora
 
 云端同步功能部署记录.md
+
+# Release downloads (构建产物，不入库)
+site/downloads/

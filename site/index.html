@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cognote — 本地优先的 Markdown 智能笔记系统</title>
+<meta name="description" content="Cognote 是开源（MIT）的本地 Markdown 笔记系统：中文全文检索、AI 知识扩展、LaTeX 公式、五套主题、笔记分享，可选自建云同步。支持 Windows / macOS / Linux 下载即用。">
+<meta property="og:title" content="Cognote — 本地优先的 Markdown 智能笔记系统">
+<meta property="og:description" content="中文全文检索 · AI 知识扩展 · LaTeX 公式 · 五套主题 · 笔记分享 · 自建云同步。开源免费，数据自有。">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="Cognote logo">Cognote</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-links" id="nav-links">
+      <a href="#features">功能特性</a>
+      <a href="#screenshots">界面预览</a>
+      <a href="#download">下载</a>
+      <a href="#quickstart">快速开始</a>
+      <a href="deploy.html">自建云同步</a>
+      <a class="btn" href="#download">下载 v1.0.0</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="badges">
+      <span class="badge">开源协议 <b>MIT</b></span>
+      <span class="badge">版本 <b>v1.0.0</b></span>
+      <span class="badge">三平台 <b>Windows · macOS · Linux</b></span>
+      <span class="badge">数据 <b>100% 存在你自己的磁盘</b></span>
+    </div>
+    <h1>Cognote</h1>
+    <p class="tagline">本地优先的 Markdown 智能笔记系统</p>
+    <p class="sub">
+      自动归类的目录树、中文全文检索、AI 知识扩展、所见即所得编辑、LaTeX 公式、五套主题、带密码的笔记分享——
+      笔记始终是磁盘上的普通 Markdown 文件。云同步为可选能力，<b>由你自建同步服务</b>，数据不出自己服务器。
+    </p>
+    <div class="hero-cta">
+      <a class="btn lg" href="#download">⬇ 下载安装包</a>
+      <a class="btn lg ghost" href="deploy.html">自建云同步部署 →</a>
+    </div>
+    <p class="hero-note">绿色便携版，解压即用，无需安装 Node.js / 无任何依赖</p>
+  </div>
+</header>
+
+<!-- ============ 功能特性 ============ -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>功能特性</h2>
+      <p>一个为中文知识工作者设计的笔记系统：本地、快速、可扩展</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="ico">🌳</div>
+        <h3>目录树 + 标签组织</h3>
+        <p>递归扫描你指定的笔记目录，自动生成目录树与标签体系；支持多目录同时管理，笔记就是普通 <code>.md</code> 文件。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🔍</div>
+        <h3>中文全文检索</h3>
+        <p>自建中文 bigram + 英文分词倒排索引，TF-IDF 加权排序、命中高亮，万级笔记毫秒级返回。</p>
+      </div>
+      <div class="card">
+        <div class="ico">✏️</div>
+        <h3>所见即所得编辑</h3>
+        <p>基于 TipTap / ProseMirror 的双栏编辑器，实时预览；随时切换 Markdown 源码模式；代码文件内置 Monaco（VS Code 内核）。</p>
+      </div>
+      <div class="card">
+        <div class="ico">∑</div>
+        <h3>LaTeX 数学公式</h3>
+        <p>KaTeX 实时渲染行内与块级公式；从 Word / LaTeX 粘贴公式自动转换，兼容残缺定界符与裸公式，货币符号与代码不受影响。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🎨</div>
+        <h3>五套主题</h3>
+        <p>跟随系统 / 浅色 / 深色 / 暖色 / Typora 白底 GitHub 风，一键切换，预览与编辑器排版一致。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🤖</div>
+        <h3>AI 知识扩展</h3>
+        <p>一键扩展笔记、推荐分类、自动打标签、生成「一页纸复习摘要」与自测题。支持 DeepSeek / OpenAI / Claude / 智谱 / 通义 / Ollama 本地模型。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🔗</div>
+        <h3>带密码的笔记分享</h3>
+        <p>生成「链接 + 查看密码」的公开阅读页，有效期 1 / 7 / 30 天或长期；密码错误限流、可随时停用，附浏览统计。</p>
+      </div>
+      <div class="card">
+        <div class="ico">☁️</div>
+        <h3>云端同步（自建）<span class="tag-opt">可选</span></h3>
+        <p>双向差异同步、冲突自动保留副本、删除传播。同步服务端零依赖、开箱即用，<b>需要你自行部署</b>，笔记只存在你自己的服务器上。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🗂️</div>
+        <h3>附件与图片</h3>
+        <p>附件统一管理；笔记中 <code>figures/…</code> 相对路径图片在预览、编辑器、PDF 导出与分享页全链路正常显示。</p>
+      </div>
+      <div class="card">
+        <div class="ico">📑</div>
+        <h3>PDF 导出</h3>
+        <p>任意笔记一键导出 PDF，保留公式、代码高亮与图片。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🃏</div>
+        <h3>复习自测</h3>
+        <p>把笔记加入复习计划，AI 生成摘要与自测题，间隔回顾巩固记忆。</p>
+      </div>
+      <div class="card">
+        <div class="ico">⚡</div>
+        <h3>零依赖内核</h3>
+        <p>后端仅用 Node.js 内置模块，无需 <code>npm install</code>；前端原生单页应用，启动即用、占用极低。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 截图 ============ -->
+<section id="screenshots" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>界面预览</h2>
+      <p>公式、代码、任务、表格、主题切换，开箱即有</p>
+    </div>
+    <div class="shots">
+      <figure class="shot full">
+        <img src="assets/img/viewer-light.png" alt="Cognote 浅色主题笔记预览，含 LaTeX 公式" loading="lazy">
+        <figcaption>笔记预览 —— KaTeX 公式、目录树、标签与中文全文检索</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/editor.png" alt="Cognote 双栏编辑器" loading="lazy">
+        <figcaption>所见即所得编辑器 —— 编辑与预览双栏</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/theme-typora.png" alt="Typora 白底主题" loading="lazy">
+        <figcaption>Typora 主题 —— 白底 GitHub 风排版，编辑与预览一致</figcaption>
+      </figure>
+      <figure class="shot full">
+        <img src="assets/img/theme-dark.png" alt="深色主题" loading="lazy">
+        <figcaption>深色主题 —— 另有暖色与跟随系统模式</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 下载 ============ -->
+<section id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>下载</h2>
+      <p>绿色便携版 · 解压即用 · 内置 Node.js 运行时，无需任何环境依赖</p>
+    </div>
+    <div class="dl-grid">
+      <div class="dl-card featured">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.55 10.07 4.6v6.94H3V5.55zm0 12.9 7.07-.94V20.4H3v-1.95zM11.07 4.46 21 3v8.54H11.07V4.46zm0 15.94V12.4H21V21l-9.93-1.6z"/></svg>
+          Windows
+        </div>
+        <div class="arch">x64 · Windows 10 / 11</div>
+        <div class="file">Cognote-v1.0.0-windows-x64.zip</div>
+        <div class="meta"><span>37.6 MB</span><span>SHA256 4e37843c…</span></div>
+        <a class="btn" href="downloads/Cognote-v1.0.0-windows-x64.zip" download>⬇ 下载 Windows 版</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.7 12.9c0-2.2 1.8-3.3 1.9-3.3-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-2.9-.8-1.5 0-2.9.9-3.7 2.2-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.8 2.3 1.1 0 1.5-.7 2.9-.7s1.7.7 2.9.7 2-1.1 2.7-2.2c.8-1.2 1.2-2.4 1.2-2.5 0 0-2.3-.9-2.3-3.8zM14.5 5.9c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.7-1.3z"/></svg>
+          macOS
+        </div>
+        <div class="arch">Apple 芯片（M 系列 / arm64）</div>
+        <div class="file">Cognote-v1.0.0-macos-arm64.zip</div>
+        <div class="meta"><span>41.3 MB</span><span>SHA256 a16db9df…</span></div>
+        <a class="btn" href="downloads/Cognote-v1.0.0-macos-arm64.zip" download>⬇ 下载 macOS（Apple 芯片）</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.7 12.9c0-2.2 1.8-3.3 1.9-3.3-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-2.9-.8-1.5 0-2.9.9-3.7 2.2-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.8 2.3 1.1 0 1.5-.7 2.9-.7s1.7.7 2.9.7 2-1.1 2.7-2.2c.8-1.2 1.2-2.4 1.2-2.5 0 0-2.3-.9-2.3-3.8zM14.5 5.9c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.7-1.3z"/></svg>
+          macOS
+        </div>
+        <div class="arch">Intel 芯片（x64）</div>
+        <div class="file">Cognote-v1.0.0-macos-x64.zip</div>
+        <div class="meta"><span>42.4 MB</span><span>SHA256 07bc0c02…</span></div>
+        <a class="btn" href="downloads/Cognote-v1.0.0-macos-x64.zip" download>⬇ 下载 macOS（Intel）</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-1.7 0-2.6 1.5-2.5 3.4.1 1.3.6 2.1.6 3.2 0 1.2-1.3 2.3-1.9 3.9-.6 1.5-.3 3.3-1.2 4.4-.9 1.1.2 2.4.2 2.4s1.3-.4 2.3-.9c.8-.4 1.7-.6 2.5-.6s1.7.2 2.5.6c1 .5 2.3.9 2.3.9s1.1-1.3.2-2.4c-.9-1.1-.6-2.9-1.2-4.4-.6-1.6-1.9-2.7-1.9-3.9 0-1.1.5-1.9.6-3.2C14.6 3.5 13.7 2 12 2zm-1.6 4.1c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm3.2 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm-3.9 3.4c.5 1.4 1.5 2.2 2.3 2.2s1.8-.8 2.3-2.2c-1.5.5-3.1.5-4.6 0z"/></svg>
+          Linux
+        </div>
+        <div class="arch">x64 · glibc 发行版</div>
+        <div class="file">Cognote-v1.0.0-linux-x64.zip</div>
+        <div class="meta"><span>47.8 MB</span><span>SHA256 3c569467…</span></div>
+        <a class="btn" href="downloads/Cognote-v1.0.0-linux-x64.zip" download>⬇ 下载 Linux 版</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3 6.5 3.6L12 11.5 5.5 7.9 12 4.3zM5 9.6l6 3.3v6.8l-6-3.3V9.6zm8 10.1v-6.8l6-3.3v6.8l-6 3.3z"/></svg>
+          同步服务端
+        </div>
+        <div class="arch">需要云同步时自建部署 · 零依赖</div>
+        <div class="file">Cognote-Sync-Server-v1.0.0.zip</div>
+        <div class="meta"><span>18 KB</span><span>SHA256 52f49a4c…</span></div>
+        <a class="btn ghost" href="downloads/Cognote-Sync-Server-v1.0.0.zip" download>⬇ 下载同步服务端</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v3H4V4zm0 5h16v3H4V9zm0 5h10v3H4v-3zm0 5h16v2H4v-2z"/></svg>
+          校验与说明
+        </div>
+        <div class="arch">下载后请校验文件完整性</div>
+        <div class="file">SHA256SUMS.txt</div>
+        <div class="meta"><span>全部下载包校验和</span></div>
+        <a class="btn ghost" href="downloads/SHA256SUMS.txt" target="_blank">查看 SHA256 校验和</a>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <h3>下载后怎么用？</h3>
+      <p>
+        ① 解压到任意可写目录（桌面 / 文档均可）；
+        ② Windows 双击 <code>启动 Cognote.bat</code>，macOS 双击 <code>启动 Cognote.command</code>，Linux 执行 <code>./start.sh</code>；
+        ③ 浏览器打开 <code>http://127.0.0.1:8570</code>，在「设置」里填写你的笔记目录即可。
+        包内自带 <code>使用说明.txt</code>。macOS 首次运行若提示无法打开，在终端执行 <code>xattr -cr .</code> 后重试。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 快速开始 ============ -->
+<section id="quickstart" class="alt">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <h2>快速开始</h2>
+      <p>三步进入你的本地知识库</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>下载并解压</h3>
+          <p>选择你的平台下载，解压到任意可写目录。包内含程序、前端资源与 Node.js 运行时，<b>无需安装任何软件</b>。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>启动</h3>
+          <pre><code># Windows（双击）
+启动 Cognote.bat
+
+# macOS（双击「启动 Cognote.command」，或终端执行）
+./启动\ Cognote.command
+
+# Linux
+./start.sh</code></pre>
+          <p>看到 <code>[Cognote] 已启动: http://127.0.0.1:8570</code> 即成功，关闭窗口即停止服务。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>指向你的笔记目录</h3>
+          <p>浏览器打开 <code>http://127.0.0.1:8570</code> → 「设置」→ 填写一个或多个存放 Markdown 的目录 → 保存。Cognote 自动扫描、建索引，目录树与全文检索立即可用。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <h3>⚠️ 云同步需要你自己搭建服务</h3>
+      <p>
+        Cognote <b>不提供任何官方云端</b>：默认所有数据只存在你自己的电脑上，程序不会上传任何内容。
+        如果你需要在多台设备之间同步笔记，必须自行部署同步服务端（一个零依赖的 Node.js 程序，可跑在你自己的 VPS / 内网机器上），
+        再在 Cognote「设置 → 云端同步」中填写你的服务器地址与 Token。
+      </p>
+      <p>完整部署教程（含 systemd、nginx 反向代理、Token 配置、客户端配置、分享功能）见 → <a href="deploy.html"><b>自建云同步部署指南</b></a></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section id="faq" class="faq">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <h2>常见问题</h2>
+    </div>
+    <details open>
+      <summary>我的数据存在哪里？会被上传吗？</summary>
+      <p>笔记就是你指定目录下的普通 Markdown 文件，永远以磁盘文件为准。Cognote 默认<b>不联网上传任何数据</b>；只有你主动配置了 AI 服务（发送当前笔记内容用于扩展/摘要）或启用了自建云同步（同步到你自己的服务器）时才会发生网络请求。</p>
+    </details>
+    <details>
+      <summary>必须安装 Node.js 或其它环境吗？</summary>
+      <p>不需要。下载的绿色便携包内置了 Node.js 22 运行时，解压即用。当然，如果你愿意，也可以从源码运行（需要 Node.js ≥ 22），后端零依赖、无需 <code>npm install</code>。</p>
+    </details>
+    <details>
+      <summary>macOS 提示「无法打开」怎么办？</summary>
+      <p>这是 macOS 对未签名应用的 Gatekeeper 提示。在解压目录的终端执行 <code>xattr -cr .</code> 再启动，或右键点击 <code>启动 Cognote.command</code> → 打开 → 确认。Windows 若出现 SmartScreen 提示，点「更多信息 → 仍要运行」。</p>
+    </details>
+    <details>
+      <summary>云同步是免费的吗？数据存在谁的服务器上？</summary>
+      <p>同步服务端是开源零依赖程序，<b>部署在你自己的服务器</b>（VPS、内网机器、NAS 均可），不依赖任何付费服务，流量与存储都归你。没有服务器就无法使用云同步——本地功能完全不受影响。</p>
+    </details>
+    <details>
+      <summary>分享出去的链接安全吗？</summary>
+      <p>每个分享都有独立的查看密码（错误 10 次锁定同 IP 10 分钟）、可设 1/7/30 天有效期，随时可停用或删除；分享范围精确到文件白名单，未列入分享的笔记不会被访问。</p>
+    </details>
+    <details>
+      <summary>支持哪些 AI 服务商？不填可以吗？</summary>
+      <p>DeepSeek、OpenAI、Claude、Moonshot、智谱、通义千问、Ollama 本地模型及任意 OpenAI 兼容接口。AI 是可选增强，不配置时检索、编辑、公式、分享、同步等全部功能照常使用。</p>
+    </details>
+    <details>
+      <summary>开源吗？可以商用吗？</summary>
+      <p>MIT 协议开源，可自由使用、修改、分发，包括商业用途。</p>
+    </details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap cols">
+    <div>
+      <div class="brand"><img src="assets/logo.svg" alt="" width="20" height="20" style="display:inline;vertical-align:-4px"> Cognote</div>
+      <div>本地优先的 Markdown 智能笔记系统</div>
+      <div style="margin-top:6px">MIT License · v1.0.0</div>
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:6px">导航</div>
+      <div><a href="#features">功能特性</a></div>
+      <div><a href="#download">下载</a></div>
+      <div><a href="#quickstart">快速开始</a></div>
+      <div><a href="deploy.html">自建云同步部署</a></div>
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:6px">原则</div>
+      <div>数据自有 · 本地优先</div>
+      <div>云同步自建 · 无官方云端</div>
+      <div>开源免费 · MIT 协议</div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/main.js"></script>
+</body>
+</html>

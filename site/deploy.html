@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自建云同步部署指南 — Cognote</title>
+<meta name="description" content="Cognote 云同步需要自建同步服务端：零依赖 Node.js 程序，部署到你自己的服务器，配合 systemd 与 nginx 反向代理，客户端填地址与 Token 即可多设备同步。">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="Cognote logo">Cognote</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-links" id="nav-links">
+      <a href="index.html#features">功能特性</a>
+      <a href="index.html#download">下载</a>
+      <a href="index.html#quickstart">快速开始</a>
+      <a href="deploy.html">自建云同步</a>
+      <a class="btn" href="index.html#download">下载 v1.0.0</a>
+    </div>
+  </div>
+</nav>
+
+<header class="doc-hero">
+  <div class="wrap">
+    <h1>自建云同步部署指南</h1>
+    <p>Cognote 不提供官方云端。要在多设备间同步笔记，需要在<b>你自己的服务器</b>上部署同步服务端——
+      一个零依赖的 Node.js 单文件程序，本文给出从下载到上线的完整步骤（含 systemd、nginx、客户端配置）。</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap doc-layout">
+    <aside class="toc" id="toc">
+      <a href="#why">为什么要自建</a>
+      <a href="#arch">架构一览</a>
+      <a href="#prepare">1. 准备</a>
+      <a href="#install">2. 安装配置</a>
+      <a href="#daemon">3. systemd 守护</a>
+      <a href="#nginx">4. nginx 反代</a>
+      <a href="#client">5. 客户端配置</a>
+      <a href="#verify">6. 验证</a>
+      <a href="#share">笔记分享</a>
+      <a href="#security">安全建议</a>
+      <a href="#faq">常见问题</a>
+    </aside>
+
+    <article class="doc">
+      <h2 id="why">为什么要自建</h2>
+      <div class="callout warn">
+        <p style="margin:0"><b>重要说明：</b>Cognote 是本地优先的笔记应用，<b>不提供、也不运营任何官方云服务</b>。
+        本地功能（检索 / 编辑 / 公式 / 主题 / 分享 / PDF）无需任何服务器即可完整使用。
+        只有当你需要「多设备同步」时，才需要自己部署下述同步服务端——你的笔记只会保存在你自己的服务器上。</p>
+      </div>
+      <ul>
+        <li><b>数据主权</b>：同步数据存放在你的 VPS / 内网机器 / NAS，任何人（包括作者）都无法访问；</li>
+        <li><b>零成本</b>：服务端只用 Node.js 内置模块，无需数据库、无需 npm install，1核512M 的小机器即可跑；</li>
+        <li><b>可迁移</b>：<code>data/</code> 目录就是全部状态——就是普通文件，随时备份、换机器、用文件管理器查看。</li>
+      </ul>
+
+      <h2 id="arch">架构一览</h2>
+      <div class="diagram">┌──────────────┐        ┌──────────────┐
+│  电脑 A      │        │  电脑 B      │
+│  Cognote     │        │  Cognote     │
+│  (本地笔记)  │        │  (本地笔记)  │
+└──────┬───────┘        └───────┬──────┘
+       │  HTTPS/HTTP + Token    │
+       └───────────┬────────────┘
+                   ▼
+        ┌─────────────────────────┐
+        │   你的服务器            │
+        │  ┌───────────────────┐  │
+        │  │ nginx (80 端口)   │  │
+        │  │  /knowledge-sync/ │  │
+        │  └────────┬──────────┘  │
+        │           ▼ 127.0.0.1:8600
+        │  ┌───────────────────┐  │
+        │  │ 同步服务端        │  │
+        │  │ (Node.js 零依赖)  │  │
+        │  │  data/files/ 笔记 │  │
+        │  │  data/shares.json │  │
+        │  └───────────────────┘  │
+        └─────────────────────────┘
+              ▲
+              │ 分享链接（公开阅读页）
+        访问者 / 手机浏览器</div>
+
+      <h2 id="prepare">1. 准备</h2>
+      <ul>
+        <li><b>一台服务器</b>：公网 VPS（推荐）或内网机器/NAS；需已安装 <b>Node.js ≥ 16</b>（推荐 18/20/22）。</li>
+        <li>验证：<code>node -v</code> 输出版本号即可。没有 Node 的话，CentOS/宝塔可用「Node 版本管理器」安装，Ubuntu 可用 <code>apt install nodejs npm</code> 或 nvm。</li>
+        <li><b>下载同步服务端包</b>：<a href="downloads/Cognote-Sync-Server-v1.0.0.zip" download>Cognote-Sync-Server-v1.0.0.zip</a>（18 KB，含 <code>server.js</code> / <code>share-viewer.html</code> / 部署 README）。</li>
+      </ul>
+
+      <h2 id="install">2. 安装与配置</h2>
+      <h3>① 上传并解压</h3>
+      <pre><code>mkdir -p /www/wwwroot/cognote-sync
+# 将压缩包解压到该目录（server.js、share-viewer.html、package.json 等应在本层）
+cd /www/wwwroot/cognote-sync
+unzip Cognote-Sync-Server-v1.0.0.zip -d .</code></pre>
+
+      <h3>② 生成配置</h3>
+      <p>复制示例配置为 <code>config.json</code>，并生成一个随机 Token（Token 相当于密码，务必保密）：</p>
+      <pre><code>cp config.example.json config.json
+
+# 生成随机 Token（32 位十六进制）
+TOKEN=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")
+echo $TOKEN
+
+# 编辑 config.json，至少填入 token；其余按需
+cat > config.json <<JSON
+{
+  "token": "$TOKEN",
+  "port": 8600,
+  "host": "127.0.0.1",
+  "maxFileMb": 20,
+  "inlineBudgetMb": 24
+}
+JSON
+
+chmod 600 config.json
+chown -R www:www /www/wwwroot/cognote-sync 2&gt;/dev/null || true</code></pre>
+      <table>
+        <tr><th>配置项</th><th>说明</th></tr>
+        <tr><td><code>token</code></td><td>客户端访问凭证，泄露即等于泄露全部笔记，可随时改掉并重启</td></tr>
+        <tr><td><code>port</code> / <code>host</code></td><td>建议保持 <code>127.0.0.1:8600</code> 只监听本机，由 nginx 对外（见第 4 步）</td></tr>
+        <tr><td><code>dataDir</code></td><td>可选，数据目录；默认为程序目录下的 <code>data/</code></td></tr>
+        <tr><td><code>maxFileMb</code></td><td>单文件大小上限（默认 20 MB），附件/图片同步受此限制</td></tr>
+      </table>
+
+      <h3>③ 前台试运行</h3>
+      <pre><code>node server.js
+# [sync] 数据目录: /www/wwwroot/cognote-sync/data
+# [sync] 已同步文件数: 0, 版本: 1</code></pre>
+      <p>另一个终端验证连通性（替换成你的 Token）：</p>
+      <pre><code>curl "http://127.0.0.1:8600/api/ping?token=你的TOKEN"
+# {"ok":true,"serverTime":...,"version":1,"fileCount":0}</code></pre>
+      <p>看到 <code>"ok":true</code> 即成功，<code>Ctrl+C</code> 停止，进入下一步。</p>
+
+      <h2 id="daemon">3. systemd 守护（开机自启 + 崩溃自动重启）</h2>
+      <pre><code>cat &gt; /etc/systemd/system/cognote-sync.service &lt;&lt;'UNIT'
+[Unit]
+Description=Cognote Cloud Sync Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/www/wwwroot/cognote-sync
+ExecStart=/usr/bin/node /www/wwwroot/cognote-sync/server.js
+Restart=always
+RestartSec=3
+User=www
+Group=www
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now cognote-sync
+systemctl status cognote-sync    # 应显示 active (running)</code></pre>
+      <p style="font-size:14px;color:var(--muted)">
+        说明：<code>ExecStart</code> 中的 node 路径用 <code>which node</code> 查询后填入（宝塔 Node 版本管理器通常为
+        <code>/www/server/nodejs/vXX/bin/node</code>）；用 <code>node</code> 直接运行而非 systemd 托管也可以，
+        但不保证断线重连与开机自启。</p>
+
+      <h2 id="nginx">4. nginx 反向代理（走 80 端口）</h2>
+      <p>推荐通过 nginx 把同步服务挂到 <code>/knowledge-sync/</code> 子路径，客户端只填一个 HTTP 地址，后续加 HTTPS 也只需改这一处：</p>
+      <pre><code>cat &gt; /www/server/panel/vhost/nginx/cognote-sync.conf &lt;&lt;'NGINX'
+server {
+    listen 80;
+    server_name 你的服务器IP或域名;
+
+    client_max_body_size 100m;   # 同步与附件上传大小
+
+    location = /knowledge-sync { return 301 /knowledge-sync/; }
+
+    location /knowledge-sync/ {
+        proxy_pass http://127.0.0.1:8600/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+NGINX
+
+nginx -t &amp;&amp; nginx -s reload    # 宝塔: /www/server/nginx/sbin/nginx -t &amp;&amp; ... -s reload</code></pre>
+      <div class="callout info">
+        <p style="margin:0">若不想用 nginx，也可把 <code>config.json</code> 的 <code>host</code> 改为 <code>0.0.0.0</code> 直接开放 8600 端口，
+        客户端地址填 <code>http://你的服务器IP:8600</code>——但这样是明文裸奔且无 HTTPS 可能，<b>推荐还是走 nginx</b>。</p>
+      </div>
+
+      <h2 id="client">5. 客户端配置（Cognote 应用内）</h2>
+      <p>启动 Cognote → 右上角「⚙️ 设置」→「☁️ 云端同步」：</p>
+      <table>
+        <tr><th>配置项</th><th>填写内容</th></tr>
+        <tr><td>启用云端同步</td><td>勾选</td></tr>
+        <tr><td>云端服务器地址</td><td><code>http://你的服务器IP/knowledge-sync</code>（注意结尾<b>不要</b>带斜杠）</td></tr>
+        <tr><td>云端访问 Token</td><td>第 2 步 <code>config.json</code> 里的 <code>token</code></td></tr>
+        <tr><td>本地云端同步目录</td><td>留空 = 程序目录下的 <code>云端同步/</code>；也可指定任意本地目录</td></tr>
+        <tr><td>自动同步间隔</td><td>默认 60 秒</td></tr>
+      </table>
+      <p>保存后目录树会出现「☁️ 云端同步」根分类：<b>在它下面新建的分类与笔记会自动上传</b>；
+        其它电脑用相同地址 + Token、相同的本地同步目录，即可同步同一份云端笔记。</p>
+
+      <h2 id="verify">6. 验证</h2>
+      <ol>
+        <li>设备 A：在「☁️ 云端同步」下新建一条笔记，等待一个同步周期（或手动点同步）；</li>
+        <li>打开服务器数据目录确认文件已落盘：<code>ls -R /www/wwwroot/cognote-sync/data/files/</code>；</li>
+        <li>设备 B：配置相同地址与 Token → 目录树应出现同一条笔记；</li>
+        <li>断网/冲突场景：双方同时修改同一笔记时，<b>修改时间新者胜出</b>，落败方自动保存为「冲突副本」，数据不丢。</li>
+      </ol>
+
+      <h2 id="share">笔记分享</h2>
+      <p>同步服务端同时承担<b>分享</b>能力（依赖云端目录中的笔记）。在 Cognote 中右键笔记或目录 → 分享：</p>
+      <ul>
+        <li>生成「链接 + 查看密码」的公开阅读页，无需账号即可在手机浏览器打开；</li>
+        <li>有效期可选 <b>1 / 7 / 30 天或长期</b>，可随时停用（410）、恢复或删除；</li>
+        <li>密码错误 10 次锁定同 IP 10 分钟；附带浏览统计（打开次数、按天、每篇笔记阅读数）；</li>
+        <li>分享链接格式：<code>http://你的服务器IP/knowledge-sync/s/viewer?id=&lt;分享id&gt;</code></li>
+      </ul>
+      <div class="callout info">
+        <p style="margin:0">分享页依赖 nginx 的 <code>client_max_body_size</code>（建议 ≥ 100m）与 <code>proxy_read_timeout</code>（建议 ≥ 300s），
+        见第 4 步配置；笔记中的相对路径图片会随分享一并打包，分享页可正常显示。</p>
+      </div>
+
+      <h2 id="security">安全建议</h2>
+      <ul>
+        <li><b>Token 即密码</b>：不要提交到公开仓库、不要写进截图；泄露后改 <code>config.json</code> 的 <code>token</code> 并 <code>systemctl restart cognote-sync</code>；</li>
+        <li><b>建议 HTTPS</b>：公网上 HTTP 传输可被窃听。宝塔可一键申请证书，启用后客户端地址改为 <code>https://域名/knowledge-sync</code>；</li>
+        <li><b>防火墙 / 安全组</b>：只需放行 80（或你选择的端口），保持 <code>host: 127.0.0.1</code> 不直接暴露 8600；</li>
+        <li><b>备份</b>：定期打包 <code>data/</code> 目录即完成全部备份；</li>
+        <li>系统与 Node.js 保持更新；不要把服务端目录放进 nginx 可直接下载的静态站点根（本部署为反代，不涉及）。</li>
+      </ul>
+
+      <h2 id="faq">常见问题</h2>
+      <div class="faq">
+        <details open>
+          <summary>客户端提示 401 / 同步失败</summary>
+          <p>Token 不匹配：核对客户端填写的 Token 与服务器 <code>config.json</code> 完全一致（无空格、无引号）；改完需重启服务。也检查地址结尾不要多带 <code>/</code>。</p>
+        </details>
+        <details>
+          <summary>客户端提示 404 / 连接失败</summary>
+          <p>① 地址是否少了 <code>/knowledge-sync</code>；② <code>curl "http://127.0.0.1:8600/api/ping?token=…"</code> 在服务器本机是否通；③ nginx 是否 <code>reload</code>、防火墙/云安全组是否放行 80。</p>
+        </details>
+        <details>
+          <summary>两台设备内容不一样 / 出现「冲突副本」</summary>
+          <p>这是保护机制：双方同时改同一笔记时保留两份——新版本生效，旧版本存为「冲突副本」文件，打开对比后手动合并、删除副本即可。</p>
+        </details>
+        <details>
+          <summary>可以同步图片 / 附件吗？</summary>
+          <p>可以。png/jpg/gif/webp/svg 等图片与常见文档类型都在同步范围内，受 <code>maxFileMb</code>（默认 20MB）限制。笔记中 <code>figures/…</code> 相对路径图片会随笔记一起同步。</p>
+        </details>
+        <details>
+          <summary>不用公网服务器，能在家里内网自建吗？</summary>
+          <p>可以。在内网一台常开机器（含 NAS、树莓派）部署，设备在同一局域网即可同步；出门在外则需配合内网穿透（如 Tailscale / frp）或端口映射，方式与本文相同。</p>
+        </details>
+        <details>
+          <summary>同步服务端要收流量费吗？</summary>
+          <p>服务端程序免费（MIT）。它跑在你自己的服务器上，产生的流量与磁盘占用就是你服务器本身的资源，与作者无关，也不存在任何订阅费。</p>
+        </details>
+      </div>
+
+      <div class="callout ok">
+        <p style="margin:0">部署完成 🎉 回到 <a href="index.html"><b>Cognote 首页</b></a> · 或 <a href="index.html#download"><b>下载客户端</b></a></p>
+      </div>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap cols">
+    <div>
+      <div class="brand"><img src="assets/logo.svg" alt="" width="20" height="20" style="display:inline;vertical-align:-4px"> Cognote</div>
+      <div>本地优先的 Markdown 智能笔记系统</div>
+      <div style="margin-top:6px">MIT License · v1.0.0</div>
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:6px">导航</div>
+      <div><a href="index.html#features">功能特性</a></div>
+      <div><a href="index.html#download">下载</a></div>
+      <div><a href="index.html#quickstart">快速开始</a></div>
+      <div><a href="deploy.html">自建云同步部署</a></div>
+    </div>
+    <div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:6px">原则</div>
+      <div>数据自有 · 本地优先</div>
+      <div>云同步自建 · 无官方云端</div>
+      <div>开源免费 · MIT 协议</div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/main.js"></script>
+</body>
+</html>
