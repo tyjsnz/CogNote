@@ -758,6 +758,51 @@
         body: JSON.stringify({ rel, dir }),
       }).then(() => toast('已在资源管理器中打开: ' + n.rel)).catch((e) => toast(e.message, true));
     },
+    // 目录 → 复习目录（已在列表中则移除），免去手工在设置里输入路径
+    async 'toggle-review-dir'() {
+      const n = window._ctxNode;
+      const abs = ctxAbsDir(n);
+      if (!abs) return toast('无法识别该目录的磁盘路径', true);
+      const key = abs.replace(/[\\/]+$/, '');
+      const list = (state.config.reviewDirs || []).map((s) => String(s).trim().replace(/[\\/]+$/, ''));
+      const has = list.includes(key);
+      const next = has ? list.filter((s) => s !== key) : [...list, abs];
+      const bt = busyToast(has ? '正在移出复习目录…' : '正在加入复习目录…');
+      try {
+        const d = await api('/api/review/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reviewDirs: next }),
+        });
+        state.config.reviewDirs = d.reviewDirs;
+        bt.finish(has
+          ? '📤 已移出复习目录: ' + n.rel
+          : '📚 已加入复习目录: ' + n.rel + '（复习计划只覆盖该目录）');
+      } catch (e) {
+        bt.finish((has ? '移出复习目录失败: ' : '加入复习目录失败: ') + e.message, true);
+      }
+    },
+    // 目录名 → 扫描过滤目录（过滤按目录名匹配，同名目录一并过滤）
+    async 'toggle-ignore-dir'() {
+      const n = window._ctxNode;
+      if (!n || !n.rel) return toast('无法识别该目录', true);
+      const name = n.rel.split('/').pop();
+      const cur = state.config?.index?.ignoreDirs || [];
+      if (cur.includes(name)) return toast('该目录名已在扫描过滤目录中');
+      const bt = busyToast('正在加入扫描过滤目录并重建索引…');
+      try {
+        await api('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: { ignoreDirs: [...cur, name] } }),
+        });
+        bt.finish('🚫 已加入扫描过滤目录: ' + name + '（同名目录将不再扫描）');
+        await fetchConfig();
+        await Promise.all([loadTree(), loadTags(), loadStats()]);
+      } catch (e) {
+        bt.finish('加入扫描过滤目录失败: ' + e.message, true);
+      }
+    },
     async 'new-subfolder'() {
       const n = window._ctxNode || { type: 'root', rel: '' };
       const name = prompt('输入新分类名称：', '新分类');
@@ -978,6 +1023,32 @@
     },
   };
 
+  // 目录树节点 → 磁盘绝对路径（加入复习目录 / 扫描过滤目录时写入配置用）
+  function ctxAbsDir(n) {
+    if (!n || n.type !== 'dir' || !n.rel) return '';
+    const { rel, dir } = stripDirPrefix(n.rel);
+    const base = String(dir || state.config?.notesDirs?.[0] || state.config?.notesDir || '').replace(/[\\/]+$/, '');
+    if (!base) return '';
+    const abs = rel ? base + '/' + rel : base;
+    // Windows 盘符路径统一成反斜杠，保证与服务端 path.sep 前缀匹配
+    return /^[A-Za-z]:/.test(abs) ? abs.replace(/\//g, '\\') : abs;
+  }
+
+  // 目录右键菜单里的「复习目录 / 扫描过滤」项（已在列表中则给出对应移除项）
+  function dirCfgMenuItems(rel) {
+    if (!rel) return [];
+    const abs = ctxAbsDir({ type: 'dir', rel });
+    const key = abs && abs.replace(/[\\/]+$/, '');
+    const inReview = !!key && (state.config?.reviewDirs || [])
+      .some((s) => String(s).trim().replace(/[\\/]+$/, '') === key);
+    const name = rel.split('/').pop();
+    const inIgnore = (state.config?.index?.ignoreDirs || []).includes(name);
+    const out = [];
+    if (abs) out.push({ action: 'toggle-review-dir', label: inReview ? '📤 移出复习目录' : '📚 加入复习目录' });
+    if (!inIgnore) out.push({ action: 'toggle-ignore-dir', label: '🚫 加入扫描过滤目录' });
+    return out.length ? [{ sep: true }, ...out] : [];
+  }
+
   function bindContextMenu() {
     $('#tree').addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -996,6 +1067,7 @@
               ...(rel ? [{ action: 'rename-folder', label: '✏️ 重命名' }] : []),
               { action: 'reveal', label: '🔗 打开本地位置' },
               ...shareItem,
+              ...dirCfgMenuItems(rel),
             ]
           : [
               { action: 'edit', label: '✏️ 编辑' },
@@ -3582,13 +3654,8 @@
       ai: aiConfig,
     };
     if (!aiConfig.apiKey) delete body.ai.apiKey;
-    await api('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
 
-    // 云端同步配置（地址 / Token / 目录 / 开关）
+    // 云端同步配置（地址 / Token / 目录 / 开关）—— 先本地校验，避免保存一半才报错
     const cloudEnabled = $('#cfg-cloud-enabled').checked;
     const cloudUrl = $('#cfg-cloud-url').value.trim();
     const cloudToken = $('#cfg-cloud-token').value.trim();
@@ -3600,8 +3667,18 @@
     if (cloudEnabled && !cloudToken && !state.config?.cloud?.tokenSet) {
       return toast('启用云端同步前请填写 Token', true);
     }
-    if (cloudEnabled || state.config?.cloud?.enabled) {
-      try {
+
+    // 保存过程给出「进行中 → 成功 / 失败」三态提示（重建索引可能耗时）
+    const btn = $('#btn-settings-ok');
+    if (btn) btn.disabled = true;
+    const bt = busyToast('正在保存设置并重建索引…');
+    try {
+      await api('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (cloudEnabled || state.config?.cloud?.enabled) {
         await api('/api/cloud/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3613,17 +3690,24 @@
             intervalSec: cloudInterval,
           }),
         });
-      } catch (e) {
-        return toast('云端同步设置保存失败: ' + e.message, true);
       }
+    } catch (e) {
+      bt.finish('❌ 设置保存失败：' + e.message, true);
+      return; // 保持对话框打开，修正后可直接重试
+    } finally {
+      if (btn) btn.disabled = false;
     }
 
-    toast('设置已保存，索引已重建');
+    bt.finish('✅ 设置已保存，索引已重建');
     $('#dialog-settings').classList.add('hidden');
-    await fetchConfig();
-    await Promise.all([loadTree(), loadTags(), loadStats()]);
-    refreshCloudStatus(true);
-    if (state.config?.cloud?.enabled) cloudSyncNow(false);
+    try {
+      await fetchConfig();
+      await Promise.all([loadTree(), loadTags(), loadStats()]);
+      refreshCloudStatus(true);
+      if (state.config?.cloud?.enabled) cloudSyncNow(false);
+    } catch {
+      /* 保存结果已提示，后续刷新失败不打断 */
+    }
   }
 
   // v1.3: 双链图
