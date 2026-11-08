@@ -2,6 +2,37 @@
 
 ## 2026-11-08
 
+### 新增：自动更新（检测提示 + 一键更新，仅应用文件）
+
+- **更新机制**：启动时静默检查更新源 `config.update.url`（默认官网
+  `https://cognote.flacn.net/downloads/latest.json`，8 秒超时不可达则静默不打扰）；
+  发现新版顶栏显示呼吸动画徽章「⬆ vX.Y.Z」→ 点击弹窗（当前版本 / 最新版 /
+  更新说明）→「立即更新」一键完成：下载应用更新包 → SHA256 校验 → 解压 →
+  服务退出 → 覆盖应用文件 → 重启 → 前端轮询结果后自动刷新页面（实测 5.6 秒）
+- **仅更新应用文件**（几百 KB~6 MB）：只覆盖 server.js / src / public / scripts
+  等清单内文件，保留内置 Node 运行时、config.json、索引与笔记数据；
+  按 `.update-files.json` 清单清理新版已废弃的旧文件，数据文件永不涉及
+- **安全兜底**（`scripts/self-update.js`，detached 执行）：更新前把将被覆盖的文件
+  备份到 `.update-backup/v<旧版>/`；新版本服务 30 秒内起不来**自动回滚旧版本并重启**；
+  过程记录写 `update.log`，结果写 `.update-result.json` 供前端轮询；
+  SHA256 不匹配 / 包内容异常 / 版本不一致一律在重启前中止（服务不受影响）
+- **新增零依赖 zip 解压** `src/zipextract.js`（store/deflate，防 zip slip 路径穿越），
+  跨平台不依赖系统 unzip/tar；更新包带顶层目录时自动探测真实根
+- **安装形态区分**：便携包走在线覆盖；git 源码安装提示 `git pull`、
+  pkg 单文件提示到官网下载（均不在线覆盖，避免破坏安装）
+- **发行配套**（`scripts/build-packages.sh`）：新增 `build_app_update()`
+  产出 `Cognote-AppUpdate-vX.Y.Z.zip`（应用更新包，跨平台共用）+
+  `write_manifest()` 产出 `latest.json`（版本/更新说明自动摘取 CHANGELOG 最新小节/
+  各平台包与更新包的 url、size、sha256）
+- **前端**：顶栏 `#btn-update` 徽章、设置内「当前版本 + 检查更新」入口、
+  `#dialog-update` 更新弹窗；`.update-badge` 呼吸动画
+- **验证**：新增 zip 解压单测 **11 项**（store/deflate/中文路径/二进制/
+  非法文件/zip slip 拦截）+ 更新端到端 e2e **24 项全绿**
+  （徽章出现→弹窗→一键更新→版本变 1.1.0、config/索引/笔记保留、备份与清单就位、
+  临时目录清理、SHA 篡改被拦截不重启、手动检查提示已是最新、无 JS 错误）；
+  既有回归全绿（settings 22 / latex-full 49 / image-sync 29 / typora-theme 32 /
+  viewer-latex 24 / editor-load 8 / bare-latex 3）
+
 ### 发布：发行包重建 + 官网/下载文件同步更新到服务端
 
 - 本轮前端改动（设置保存三态提示、目录右键加入复习/过滤目录）已打进发行包：

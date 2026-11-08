@@ -255,6 +255,10 @@ body {
 .badge.warn { background: var(--warn-bg); color: var(--warn); }
 .badge.err { background: rgba(220, 60, 60, .12); color: #d33; }
 .badge.syncing { background: var(--accent-bg); color: var(--accent); }
+/* 自动更新徽章（发现新版本时常驻提醒） */
+.badge.update-badge { background: var(--accent); color: #fff; cursor: pointer; border: none; animation: updatePulse 1.8s ease-in-out infinite; }
+.badge.update-badge:hover { background: var(--accent-hover); }
+@keyframes updatePulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
 button.cloud-badge { border: none; cursor: pointer; font-family: inherit; }
 button.cloud-badge:hover { filter: brightness(.96); }
 .cloud-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }

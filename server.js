@@ -2,13 +2,16 @@ const http = require('node:http');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const { exec } = require('node:child_process');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const { exec, spawn } = require('node:child_process');
 const { Indexer } = require('./src/indexer');
 const { SearchEngine } = require('./src/search');
 const { DeepSeekAI, AIError } = require('./src/ai');
 const notesApi = require('./src/notes');
 const { ReviewManager } = require('./src/review');
 const { CloudSync, SYNC_STATE_DIR } = require('./src/cloudsync');
+const { extractZip } = require('./src/zipextract');
 
 const ROOT = __dirname;
 
@@ -35,6 +38,8 @@ const DEFAULT_CONFIG = {
   index: { maxFileSizeKb: 2048, ignoreDirs: ['.git', 'node_modules', 'img', 'images', '.obsidian', '.trash', '.vscode', '_attachments', '.cognote-sync'] },
   // 云端同步：dir 留空时自动使用 <EXE_DIR>/云端同步
   cloud: { enabled: false, url: '', token: '', dir: '', intervalSec: 60 },
+  // 自动更新：url 留空使用官网默认更新源（downloads/latest.json）
+  update: { url: '' },
 };
 
 // AI 服务商默认配置
@@ -109,6 +114,8 @@ let search = null;
 const aiCfg = config.ai || config.deepseek;
 let ai = new DeepSeekAI(aiCfg);
 let review = null;
+// 自动更新进行中标记（防止并发触发）
+const updateState = { running: false };
 
 // ---------- 云端同步 ----------
 // 云端笔记目录：默认 <程序目录>/云端同步，可在设置中指定
@@ -375,7 +382,45 @@ function publicConfig() {
   if (!c.reviewDirs) c.reviewDirs = [];
   // 云端同步：不返回 token，只返回是否已设置
   delete c.cloud;
-  return { ...c, aiConfigured: ai.isConfigured(), cloud: cloudPublicConfig() };
+  return { ...c, aiConfigured: ai.isConfigured(), cloud: cloudPublicConfig(), version: APP_VERSION };
+}
+
+// ---------- 自动更新 ----------
+const DEFAULT_UPDATE_URL = 'https://cognote.flacn.net/downloads/latest.json';
+const APP_VERSION = (() => { try { return require('./package.json').version; } catch { return '0.0.0'; } })();
+
+// 版本比较：a 是否比 b 新（数字分段）
+function isNewer(a, b) {
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+// 安装形态：git 源码 / 便携包 / pkg 单文件
+function installSource() {
+  if (IS_PKG) return 'pkg';
+  try { if (fs.existsSync(path.join(ROOT, '.git'))) return 'git'; } catch { /* 忽略 */ }
+  return 'portable';
+}
+
+// 拉取更新源 manifest（8 秒超时）
+async function fetchManifest() {
+  const url = (config.update && config.update.url) || DEFAULT_UPDATE_URL;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers: { 'Cache-Control': 'no-cache' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const m = await res.json();
+    if (!m || !m.version) throw new Error('更新源格式错误');
+    return m;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- static ----------
@@ -1245,6 +1290,127 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       saveConfig({ reviewDirs: config.reviewDirs });
     }
     return sendJson(res, 200, { ok: true, reviewDirs: config.reviewDirs });
+  }
+
+  // ---------- 自动更新：检查 ----------
+  if (pathname === '/api/update/check' && req.method === 'GET') {
+    const source = installSource();
+    const base = { ok: true, current: APP_VERSION, source };
+    if (source !== 'portable') {
+      // pkg 单文件 / git 源码：不走在线覆盖，给出对应提示
+      return sendJson(res, 200, { ...base, updateAvailable: false, latest: null });
+    }
+    let m;
+    try {
+      m = await fetchManifest();
+    } catch (e) {
+      return sendJson(res, 200, { ...base, updateAvailable: false, latest: null, error: '更新源不可达: ' + e.message });
+    }
+    const latest = String(m.version || '');
+    const au = m.appUpdate || {};
+    const available = isNewer(latest, APP_VERSION) && !!au.url && !!au.sha256;
+    return sendJson(res, 200, {
+      ...base,
+      latest,
+      updateAvailable: available,
+      notes: m.notes || '',
+      publishedAt: m.publishedAt || '',
+      pkg: available ? { url: au.url, size: au.size || 0, sha256: au.sha256 } : null,
+    });
+  }
+
+  // ---------- 自动更新：执行（下载 → 校验 → 解压 → 交给更新器） ----------
+  if (pathname === '/api/update/apply' && req.method === 'POST') {
+    const source = installSource();
+    if (source === 'pkg') throw new Error('单文件打包模式暂不支持在线更新，请到官网下载新版覆盖');
+    if (source === 'git') throw new Error('源码安装（git clone）请在仓库目录执行 git pull 更新');
+    if (updateState.running) throw new Error('已有更新在进行中，请稍候');
+    updateState.running = true;
+    try {
+      const m = await fetchManifest();
+      const latest = String(m.version || '');
+      const au = m.appUpdate || {};
+      if (!au.url || !au.sha256) throw new Error('更新源缺少下载信息（appUpdate）');
+      if (!isNewer(latest, APP_VERSION)) throw new Error(`已是最新版本 (v${APP_VERSION})`);
+
+      // 下载更新包（应用文件包，体积小）
+      const res2 = await fetch(au.url, { signal: AbortSignal.timeout(120000) });
+      if (!res2.ok) throw new Error('下载失败: HTTP ' + res2.status);
+      const buf = Buffer.from(await res2.arrayBuffer());
+      const sha = crypto.createHash('sha256').update(buf).digest('hex');
+      if (sha !== au.sha256) throw new Error('更新包校验失败（SHA256 不匹配），已中止');
+
+      // 解压到临时目录
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cognote-update-'));
+      const zipPath = path.join(tmp, 'update.zip');
+      fs.writeFileSync(zipPath, buf);
+      const staging = path.join(tmp, 'staging');
+      try {
+        extractZip(zipPath, staging);
+      } catch (e) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw new Error('更新包解压失败: ' + e.message);
+      }
+      // 包内可能带一层顶层目录（Cognote-AppUpdate-vX.Y.Z/），自动探测真实根
+      let root = staging;
+      if (!fs.existsSync(path.join(root, 'server.js'))) {
+        const entries = fs.readdirSync(root).filter((n) => !n.startsWith('.'));
+        if (entries.length === 1 && fs.statSync(path.join(root, entries[0])).isDirectory()) {
+          root = path.join(root, entries[0]);
+        }
+      }
+
+      // 包内容与版本双重校验
+      const innerPkg = path.join(root, 'package.json');
+      if (!fs.existsSync(path.join(root, 'server.js')) || !fs.existsSync(innerPkg)) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw new Error('更新包内容异常（缺少 server.js / package.json）');
+      }
+      let innerVersion = '';
+      try { innerVersion = JSON.parse(fs.readFileSync(innerPkg, 'utf8')).version || ''; } catch { /* 下面统一报错 */ }
+      if (innerVersion !== latest) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw new Error(`更新包版本 (${innerVersion || '?'}) 与更新源 (${latest}) 不一致，已中止`);
+      }
+      const selfUpdater = path.join(ROOT, 'scripts', 'self-update.js');
+      if (!fs.existsSync(selfUpdater)) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw new Error('缺少更新执行器 scripts/self-update.js（安装包可能不完整）');
+      }
+
+      // 交给更新器：它会等本进程退出后再覆盖文件并重启
+      const args = JSON.stringify({
+        parentPid: process.pid,
+        appRoot: ROOT,
+        staging: root,
+        tmpDir: tmp,
+        backup: path.join(ROOT, '.update-backup'),
+        fromVersion: APP_VERSION,
+        toVersion: latest,
+        port: config.port,
+      });
+      const child = spawn(process.execPath, [selfUpdater, args], {
+        detached: true, stdio: 'ignore', cwd: ROOT, windowsHide: true, env: process.env,
+      });
+      child.unref();
+      console.log(`[Cognote] 更新器已启动: v${APP_VERSION} → v${latest} (pid=${child.pid})`);
+      sendJson(res, 200, { ok: true, latest, message: `更新包就绪，服务即将重启升级到 v${latest}…` });
+      // 响应已发出 → 本进程退出，交由更新器覆盖文件并重启（延迟确保响应刷出）
+      setTimeout(() => process.exit(0), 800);
+      return;
+    } finally {
+      updateState.running = false;
+    }
+  }
+
+  // ---------- 自动更新：结果（前端轮询） ----------
+  if (pathname === '/api/update/result' && req.method === 'GET') {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(ROOT, '.update-result.json'), 'utf8'));
+      return sendJson(res, 200, { ok: true, result: r });
+    } catch {
+      return sendJson(res, 200, { ok: false, result: null });
+    }
   }
 
   return null;

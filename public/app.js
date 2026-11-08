@@ -3593,6 +3593,7 @@
   }
 
   function openSettings() {
+    $('#cfg-version').textContent = 'v' + (state.config?.version || updateInfo?.current || '—');
     const cloudDir = state.config?.cloud?.dir || '';
     const dirs = (state.config.notesDirs || (state.config.notesDir ? [state.config.notesDir] : []))
       // 云端目录由「云端同步」自动管理，不在笔记目录列表中展示
@@ -3708,6 +3709,107 @@
     } catch {
       /* 保存结果已提示，后续刷新失败不打断 */
     }
+  }
+
+  // ---------- 自动更新 ----------
+  let updateInfo = null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // 启动时/手动检查更新（更新源不可达时静默，不打扰使用）
+  async function checkUpdate(silent = true) {
+    try {
+      const d = await api('/api/update/check');
+      updateInfo = d;
+      const btn = $('#btn-update');
+      if (btn) {
+        if (d.updateAvailable) { btn.textContent = '⬆ v' + d.latest; btn.classList.remove('hidden'); }
+        else btn.classList.add('hidden');
+      }
+      const hint = $('#upd-hint');
+      if (hint) {
+        hint.textContent = d.updateAvailable ? `发现新版本 v${d.latest}`
+          : d.error ? '检查失败：' + d.error
+          : d.source === 'git' ? '源码安装（git），请 git pull 更新'
+          : d.source === 'pkg' ? '单文件打包模式，请到官网下载新版'
+          : '已是最新版本 ✓';
+      }
+      return d;
+    } catch (e) {
+      if (!silent) toast('检查更新失败: ' + e.message, true);
+      return null;
+    }
+  }
+
+  function openUpdateDialog() {
+    const d = updateInfo;
+    if (!d) { toast('尚未完成更新检查，请稍候再试', true); return; }
+    $('#upd-current').textContent = '当前版本：v' + d.current;
+    const apply = $('#btn-update-apply');
+    if (d.updateAvailable) {
+      $('#upd-latest').textContent = `发现新版本：v${d.latest}`;
+      $('#upd-latest').style.color = 'var(--accent)';
+      $('#upd-notes').textContent = d.notes || '（更新说明见官网 https://cognote.flacn.net）';
+      apply.disabled = false;
+      apply.classList.remove('hidden');
+    } else {
+      $('#upd-latest').textContent = d.error ? '检查更新失败：' + d.error
+        : d.source === 'git' ? '源码安装（git clone），请在仓库目录执行 git pull 更新'
+        : d.source === 'pkg' ? '单文件打包模式，请到官网下载新版覆盖安装'
+        : '已是最新版本 ✓';
+      $('#upd-latest').style.color = '';
+      $('#upd-notes').textContent = '';
+      apply.classList.add('hidden');
+    }
+    $('#dialog-update').classList.remove('hidden');
+  }
+
+  // 一键更新：下载校验 → 重启服务 → 自动刷新页面
+  async function applyUpdate() {
+    const d = updateInfo;
+    if (!d || !d.updateAvailable) return;
+    const go = confirm(
+      `确认更新到 v${d.latest}？\n\n` +
+      '· 下载应用更新包并校验 SHA256（几百 KB）\n' +
+      '· 服务自动重启，页面随后自动刷新（约 10~40 秒）\n' +
+      '· 笔记 / 配置 / 索引数据不受影响；更新失败会自动回滚'
+    );
+    if (!go) return;
+    $('#btn-update-apply').disabled = true;
+    const bt = busyToast('正在下载并校验更新包…');
+    try {
+      const r = await api('/api/update/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      bt.finish('🔄 ' + (r.message || '正在重启服务…'));
+    } catch (e) {
+      bt.finish('更新失败: ' + e.message, true);
+      $('#btn-update-apply').disabled = false;
+      return;
+    }
+    // 轮询更新结果（服务重启期间请求失败属正常）
+    for (let i = 0; i < 150; i++) {
+      await sleep(800);
+      let j = null;
+      try {
+        const res = await fetch('/api/update/result?ts=' + Date.now(), { cache: 'no-store' });
+        if (res.ok) j = await res.json();
+      } catch { /* 重启中 */ }
+      const r = j && j.result;
+      if (r && r.to === d.latest) {
+        if (r.ok) {
+          bt.finish(`✅ 已更新到 v${d.latest}，页面即将刷新…`);
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          bt.finish('更新失败：' + (r.error || '未知错误') + (r.restarted ? '（已回滚并重启）' : ''), true);
+          $('#btn-update-apply').disabled = false;
+        }
+        return;
+      }
+    }
+    bt.finish('更新超时：服务未恢复，请手动重启 Cognote（更新结果见目录内 update.log）', true);
+    $('#btn-update-apply').disabled = false;
   }
 
   // v1.3: 双链图
@@ -3916,6 +4018,24 @@
     $('#btn-settings-ok').addEventListener('click', saveSettings);
     $('#btn-settings-cancel').addEventListener('click', () => $('#dialog-settings').classList.add('hidden'));
 
+    // 自动更新
+    $('#btn-update').addEventListener('click', openUpdateDialog);
+    $('#btn-update-close').addEventListener('click', () => $('#dialog-update').classList.add('hidden'));
+    $('#btn-update-apply').addEventListener('click', applyUpdate);
+    $('#btn-check-update').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const b = $('#btn-check-update');
+      b.disabled = true;
+      b.textContent = '检查中…';
+      try {
+        const d = await checkUpdate(false);
+        if (d && d.updateAvailable) openUpdateDialog();
+      } finally {
+        b.disabled = false;
+        b.textContent = '检查更新';
+      }
+    });
+
     // 云端同步
     $('#cloud-badge').addEventListener('click', () => {
       if (!state.config?.cloud?.enabled) openSettings();
@@ -4010,6 +4130,7 @@
     applyCover();
     applyAiPanelState();
     await fetchConfig();
+    checkUpdate().catch(() => {}); // 启动时静默检查更新（不阻塞初始化）
     try {
       await Promise.all([loadTree(), loadTags(), loadStats()]);
     } catch (e) {

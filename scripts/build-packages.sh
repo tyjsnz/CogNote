@@ -27,9 +27,10 @@ fetch() { # <url> <dest>
 # ---------- 应用文件（各平台共用） ----------
 stage_app() { # <目标目录>
   local d="$1"
-  mkdir -p "$d"
+  mkdir -p "$d/scripts"
   cp "$ROOT/server.js" "$ROOT/package.json" "$ROOT/config.example.json" "$ROOT/LICENSE" "$ROOT/README.md" "$d/"
   cp -R "$ROOT/src" "$ROOT/public" "$d/"
+  cp "$ROOT/scripts/self-update.js" "$d/scripts/"
   find "$d" -name '.DS_Store' -delete
 }
 
@@ -156,14 +157,84 @@ JSON
   echo "  完成: Cognote-Sync-Server-v${VERSION}.zip"
 }
 
+# ---------- 应用更新包（自动更新专用：仅应用文件，跨平台共用） ----------
+build_app_update() {
+  local pkg="$STAGE/Cognote-AppUpdate-v${VERSION}"
+  echo "== 构建 Cognote-AppUpdate-v${VERSION}"
+  stage_app "$pkg"
+  (cd "$STAGE" && zip -X -qry "$OUT/Cognote-AppUpdate-v${VERSION}.zip" "Cognote-AppUpdate-v${VERSION}")
+  rm -rf "$pkg"
+  echo "  完成: Cognote-AppUpdate-v${VERSION}.zip ($(du -h "$OUT/Cognote-AppUpdate-v${VERSION}.zip" | cut -f1))"
+}
+
+# ---------- 更新源清单 latest.json（供客户端 /api/update/check 拉取） ----------
+write_manifest() {
+  echo "== 生成 latest.json"
+  UPDATE_BASE_URL="${UPDATE_BASE_URL:-https://cognote.flacn.net/downloads}" node - "$OUT" "$VERSION" "$ROOT" <<'JS'
+const fs = require('fs');
+const path = require('path');
+const [out, version, root] = process.argv.slice(1);
+const base = process.env.UPDATE_BASE_URL || 'https://cognote.flacn.net/downloads';
+
+// SHA256SUMS → { 文件名: 哈希 }
+const sums = {};
+for (const line of fs.readFileSync(path.join(out, 'SHA256SUMS.txt'), 'utf8').trim().split('\n')) {
+  const m = line.trim().match(/^([0-9a-f]{64})\s+\*?\.\s*\/(.+)$/) || line.trim().match(/^([0-9a-f]{64})\s+\.\s*\/(.+)$/);
+  if (m) sums[m[2]] = m[1];
+}
+const info = (file) => ({
+  file,
+  url: base + '/' + file,
+  size: fs.statSync(path.join(out, file)).size,
+  sha256: sums[file] || '',
+});
+
+// 更新说明：优先 RELEASE_NOTES 环境变量，否则自动摘取 CHANGELOG 最新小节
+let notes = process.env.RELEASE_NOTES || '';
+if (!notes) {
+  try {
+    const md = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+    const lines = md.split('\n');
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) { if (/^### /.test(lines[i])) { start = i; break; } }
+    if (start >= 0) {
+      const buf = [];
+      for (let i = start + 1; i < lines.length; i++) {
+        if (/^#{2,3} /.test(lines[i])) break;
+        buf.push(lines[i]);
+      }
+      notes = buf.join('\n').replace(/^\s*-\s+/gm, '· ').replace(/\n{2,}/g, '\n').trim();
+    }
+  } catch { /* 无 CHANGELOG 则留空 */ }
+}
+
+const plats = ['windows-x64', 'macos-arm64', 'macos-x64', 'linux-x64'].map((p) => ({
+  platform: p, ...info(`Cognote-v${version}-${p}.zip`),
+}));
+const manifest = {
+  name: 'Cognote',
+  version,
+  publishedAt: new Date().toISOString(),
+  notes,
+  appUpdate: info(`Cognote-AppUpdate-v${version}.zip`),
+  packages: plats,
+  syncServer: info(`Cognote-Sync-Server-v${VERSION}.zip`),
+};
+fs.writeFileSync(path.join(out, 'latest.json'), JSON.stringify(manifest, null, 2));
+console.log('  完成: latest.json (version=' + version + ', notes=' + notes.length + ' 字)');
+JS
+}
+
 build_platform "windows-x64" "node-v${NODE_VER}-win-x64.zip"    "node-v${NODE_VER}-win-x64/node.exe" "node.exe"
 build_platform "macos-arm64" "node-v${NODE_VER}-darwin-arm64.tar.xz" "node-v${NODE_VER}-darwin-arm64/bin/node" "node"
 build_platform "macos-x64"   "node-v${NODE_VER}-darwin-x64.tar.xz"   "node-v${NODE_VER}-darwin-x64/bin/node"   "node"
 build_platform "linux-x64"   "node-v${NODE_VER}-linux-x64.tar.xz"    "node-v${NODE_VER}-linux-x64/bin/node"    "node"
 build_sync
+build_app_update
 
 rm -rf "$STAGE"
 (cd "$OUT" && shasum -a 256 ./*.zip > SHA256SUMS.txt)
+write_manifest
 echo "== 全部完成 =="
 ls -la "$OUT"
 cat "$OUT/SHA256SUMS.txt"
