@@ -2,6 +2,21 @@
 
 ## 2026-11-08
 
+### 生产部署：域名绑定 cognote.flacn.net + SSL 自动续签
+
+- **DNS**：`cognote.flacn.net` → `8.138.140.186`（已解析）
+- **nginx**（`knowledge-sync.conf` 拆为三块）：
+  ① 域名 HTTP → 301 HTTPS（`/.well-known/acme-challenge/` 例外，保证 HTTP-01 续签可达）；
+  ② IP HTTP 保持原官网 + `/knowledge-sync/` 反代（既有 `http://IP/knowledge-sync` 客户端不受影响）；
+  ③ 域名 HTTPS（TLS1.2/1.3 + HTTP/2，官网静态 + 同步反代）
+- **证书**：acme.sh 签发 Let's Encrypt（ECDSA P-256，2026-11-08 ~ 2027-02-06），
+  安装至 `/www/server/panel/vhost/cert/cognote.flacn.net/`，reloadcmd 自动 reload nginx
+- **自动续签**：复用面板既有 `acme.sh --cron`（每日 4 次）+ ARI 计划续期时间 2027-01-07，
+  续签后自动拷贝证书并 reload；挑战路径与安装路径均已实测验证
+- **验证**：HTTPS 首页/部署/下载 HEAD 全 200（HTTP/2）、HTTP→HTTPS 301、
+  `https://cognote.flacn.net/knowledge-sync/api/ping` ok:true、IP HTTP 兼容不变、
+  真机 Chrome 无 4xx / JS 错误
+
 ### 新增：官网页面 + 三平台绿色便携包发行
 
 - **官网 `site/`**：`index.html`（Hero / 12 项功能特性 / 真机截图 / 三平台下载区含 SHA256 /
