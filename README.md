@@ -2,6 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A5%2022-brightgreen.svg)](https://nodejs.org)
+[![GitHub](https://img.shields.io/badge/GitHub-tyjsnz%2FCogNote-181717?logo=github)](https://github.com/tyjsnz/CogNote)
+
+> 🌐 官网 / 下载：<https://cognote.flacn.net> · 💻 源码：<https://github.com/tyjsnz/CogNote>
 
 针对个人 Markdown 知识笔记的**本地 Web 智能笔记系统**：自动扫描归类、中文全文检索、AI 知识扩展、快速复习自测，并可在 Web 端直接新建/编辑 Markdown 笔记和代码文件。
 
@@ -18,6 +21,7 @@
 | 云同步服务端（自建） | `Cognote-Sync-Server-v1.0.0.zip` |
 
 - 页面源码见 [`site/`](site/)（`index.html` 功能介绍与下载 + `deploy.html` 自建云同步部署教程）；
+- 源码仓库：<https://github.com/tyjsnz/CogNote>（MIT 协议，欢迎 Issue / PR）；
 - 发行包用 `scripts/build-packages.sh` 构建，产物与 SHA256 校验和在 `dist/release/`。
 
 > **云同步需自建服务**：Cognote 不提供官方云端。多设备同步需要你自行部署 `sync-server/`
@@ -70,8 +74,8 @@ cognote/
 ### 1. 安装
 
 ```bash
-git clone https://github.com/your-username/cognote.git
-cd cognote
+git clone https://github.com/tyjsnz/CogNote.git
+cd CogNote
 npm install  # 无需额外依赖，此步可跳过
 ```
 

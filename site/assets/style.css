@@ -61,6 +61,16 @@ pre code { background: none; color: inherit; padding: 0; }
 .nav-links a:hover { color: var(--accent); text-decoration: none; }
 .nav-links .btn { color: #fff; }
 .nav-toggle { display: none; margin-left: auto; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 18px; cursor: pointer; }
+/* GitHub 导航链接 */
+.nav-links a.nav-gh {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--ink-2); font-weight: 600;
+}
+.nav-links a.nav-gh svg { width: 16px; height: 16px; }
+.nav-links a.nav-gh:hover { color: var(--accent); text-decoration: none; }
+/* Hero 中可点击的 GitHub 徽章 */
+a.badge { color: var(--ink-2); transition: .15s; }
+a.badge:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); text-decoration: none; }
 
 /* ---------- 按钮 ---------- */
 .btn {

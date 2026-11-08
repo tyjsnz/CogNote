@@ -2,6 +2,17 @@
 
 ## 2026-11-08
 
+### 变更：官网接入 GitHub 开源地址（tyjsnz/CogNote）
+
+- **入口**（首页 6 处 + 部署页 4 处）：导航栏 GitHub 图标链接、首屏可点击徽章与
+  「⭐ GitHub 源码」按钮、下载区「从源码运行」引导、两页页脚；`og:url`/`canonical`
+  指向 https://cognote.flacn.net
+- **README**：新增 GitHub 徽章与官网/源码链接，`git clone` 改为真实地址；
+  **package.json** 补 `repository` / `homepage` / `bugs` 元信息
+- **发行包重建**：包内 README/package.json 已含真实地址，4 平台包 + 同步包重打包，
+  `SHA256SUMS.txt` 与页面哈希前缀同步更新（验证：页面前缀与线上文件实际哈希一致）
+- 验证：Playwright 链接/图标/无 4xx/无 JS 错误，目测导航与首屏布局正常
+
 ### 生产部署：域名绑定 cognote.flacn.net + SSL 自动续签
 
 - **DNS**：`cognote.flacn.net` → `8.138.140.186`（已解析）

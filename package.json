@@ -12,6 +12,14 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tyjsnz/CogNote.git"
+  },
+  "homepage": "https://cognote.flacn.net",
+  "bugs": {
+    "url": "https://github.com/tyjsnz/CogNote/issues"
+  },
   "pkg": {
     "scripts": ["src/**/*.js"],
     "assets": ["public/**/*"],
