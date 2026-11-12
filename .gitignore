@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+# Cherry 编辑器 vendor 产物（第三方成品，非构建输出，需入库）
+!public/vendor/cherry/dist/
 
 # Config (contains API keys)
 config.json

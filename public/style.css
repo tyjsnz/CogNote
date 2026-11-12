@@ -781,193 +781,35 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 }
 #edit-title:focus, #edit-tags:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 
-/* Format toolbar */
-#editor-format-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 10px;
-  background: var(--panel-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s) var(--r-s) 0 0;
-  border-bottom: none;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-#editor-format-bar button {
-  padding: 4px 8px;
-  font-size: 13px;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text);
-  min-width: 28px;
-  text-align: center;
-  line-height: 1.4;
-}
-#editor-format-bar button:hover { background: var(--code-bg); border-color: var(--border); }
-#editor-format-bar button.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
-#editor-format-bar .format-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-#vditor-wrap { margin-top: 0; }
-
-/* Tiptap 编辑器 */
-#vditor-wrap .tiptap-editor {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 0 0 var(--r-s) var(--r-s);
-  min-height: 460px;
-  padding: 22px 26px;
-  font-size: 15px;
-  line-height: 1.8;
-  outline: none;
-  cursor: text;
-}
-#vditor-wrap .tiptap-editor:focus { outline: none; }
-#vditor-wrap .tiptap-editor p { margin: 0.5em 0; }
-#vditor-wrap .tiptap-editor h1 { font-size: 1.75em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; letter-spacing: -.02em; }
-#vditor-wrap .tiptap-editor h2 { font-size: 1.45em; margin: 0.8em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; letter-spacing: -.015em; }
-#vditor-wrap .tiptap-editor h3 { font-size: 1.25em; margin: 0.6em 0 0.3em; }
-#vditor-wrap .tiptap-editor h4, #vditor-wrap .tiptap-editor h5, #vditor-wrap .tiptap-editor h6 { font-size: 1.1em; margin: 0.5em 0 0.2em; }
-#vditor-wrap .tiptap-editor ul, #vditor-wrap .tiptap-editor ol { padding-left: 1.6em; margin: 0.4em 0; }
-#vditor-wrap .tiptap-editor li { margin: 0.2em 0; }
-#vditor-wrap .tiptap-editor blockquote {
-  border-left: 3px solid var(--accent);
-  margin: 0.6em 0;
-  padding: 4px 14px;
-  color: var(--muted);
-  background: var(--code-bg);
-  border-radius: 0 var(--r-s) var(--r-s) 0;
-}
-#vditor-wrap .tiptap-editor pre {
-  background: var(--pre-bg);
+/* Cherry Markdown 编辑器 */
+#vditor-wrap {
+  margin-top: 0;
   border: 1px solid var(--border);
   border-radius: var(--r-s);
-  padding: 12px 14px;
-  overflow-x: auto;
-  font-size: 13px;
-  line-height: 1.6;
-  font-family: var(--font-mono);
+  overflow: hidden;
+  background: var(--panel);
 }
-#vditor-wrap .tiptap-editor code {
-  font-family: var(--font-mono);
-  background: var(--code-bg);
-  padding: 1px 5px;
-  border-radius: 6px;
-  font-size: 13px;
+#vditor-wrap > .cherry {
+  height: calc(100vh - 265px);
+  min-height: 460px;
+  font-size: 15px;
 }
-#vditor-wrap .tiptap-editor pre code { background: none; padding: 0; }
-#vditor-wrap .tiptap-editor table { border-collapse: collapse; margin: 0.6em 0; width: 100%; }
-#vditor-wrap .tiptap-editor th, #vditor-wrap .tiptap-editor td { border: 1px solid var(--border); padding: 6px 10px; }
-#vditor-wrap .tiptap-editor th { background: var(--panel-2); font-weight: 600; }
-#vditor-wrap .tiptap-editor a { color: var(--accent); }
-#vditor-wrap .tiptap-editor hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
-#vditor-wrap .tiptap-editor img { max-width: 100%; border-radius: var(--r-s); cursor: pointer; }
-#vditor-wrap .tiptap-editor img:hover { outline: 2px solid var(--accent); outline-offset: 2px; }
-#vditor-wrap .tiptap-editor .math-inline { cursor: pointer; padding: 1px 4px; border-radius: 4px; transition: background var(--dur) var(--ease); }
-#vditor-wrap .tiptap-editor .math-inline:hover { background: rgba(var(--accent-rgb), 0.12); }
-#vditor-wrap .tiptap-editor .math-block { display: block; overflow-x: auto; margin: 0.8em 0; padding: 0.5em 0; text-align: center; cursor: pointer; border-radius: var(--r-s); transition: background var(--dur) var(--ease); }
-#vditor-wrap .tiptap-editor .math-block:hover { background: rgba(var(--accent-rgb), 0.07); }
-
-/* =========================================================
-   Typora 风格排版（编辑态）：与预览同一套 GitHub 式排版，
-   编辑即所见（仅 [data-theme="typora"] 生效）
-   ========================================================= */
-[data-theme="typora"] #editor { max-width: var(--measure); }
-[data-theme="typora"] #vditor-wrap .tiptap-editor {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 6px 6px 40px;
-  font-size: 16px;
-  line-height: 1.75;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor h1,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h2,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h3,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h4,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h5,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h6 {
-  font-weight: 600;
-  letter-spacing: normal;
-  line-height: 1.3;
-  margin: 24px 0 16px;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor h1 { font-size: 2em; padding-bottom: .3em; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor h2 { font-size: 1.5em; padding-bottom: .3em; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor h3 { font-size: 1.25em; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor h4 { font-size: 1em; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor h5,
-[data-theme="typora"] #vditor-wrap .tiptap-editor h6 { font-size: .875em; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor p { margin: 0 0 16px; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor ul,
-[data-theme="typora"] #vditor-wrap .tiptap-editor ol { padding-left: 2em; margin: 0 0 16px; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor li { margin: .25em 0; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor code {
-  background: #f8f8f8;
-  border: 1px solid rgba(27, 31, 35, .1);
-  border-radius: 4px;
-  padding: .2em .4em;
-  font-size: 85%;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor pre {
-  background: #f8f8f8;
-  border: none;
-  border-radius: 6px;
-  padding: 16px;
-  line-height: 1.55;
-  margin: 0 0 16px;
-  font-size: 14px;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor pre code {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: 100%;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor blockquote {
-  border-left: 4px solid var(--border-strong);
-  background: none;
-  border-radius: 0;
-  color: var(--muted);
-  margin: 0 0 16px;
-  padding: 0 1em;
-}
-[data-theme="typora"] #vditor-wrap .tiptap-editor table { margin: 0 0 16px; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor th,
-[data-theme="typora"] #vditor-wrap .tiptap-editor td { border: 1px solid var(--border-strong); padding: 6px 13px; }
-[data-theme="typora"] #vditor-wrap .tiptap-editor th { background: var(--panel-2); }
-[data-theme="typora"] #vditor-wrap .tiptap-editor hr {
-  border: none;
-  height: .25em;
-  background: var(--border);
-  border-radius: 2px;
-  margin: 24px 0;
-}
+/* 源码模式与可视化模式高度一致，切换不跳动 */
+#md-source { height: calc(100vh - 265px); }
+/* 标题锚点：Cherry 默认常显 §，改为 hover 显示（对标 Typora） */
+#vditor-wrap .cherry-markdown a.anchor::before { content: ''; }
+#vditor-wrap .cherry-markdown h1:hover a.anchor::before,
+#vditor-wrap .cherry-markdown h2:hover a.anchor::before,
+#vditor-wrap .cherry-markdown h3:hover a.anchor::before,
+#vditor-wrap .cherry-markdown h4:hover a.anchor::before,
+#vditor-wrap .cherry-markdown h5:hover a.anchor::before,
+#vditor-wrap .cherry-markdown h6:hover a.anchor::before { content: '§'; }
 
 /* 编辑器加载中 */
 .editor-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--muted); }
 .editor-loading-spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
 .editor-loading-text { font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-#vditor-wrap .tiptap-editor .is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  float: left;
-  color: var(--faint);
-  pointer-events: none;
-  height: 0;
-}
-#vditor-wrap .tiptap-editor .is-empty::before {
-  content: attr(data-placeholder);
-  float: left;
-  color: var(--faint);
-  pointer-events: none;
-  height: 0;
-}
 
 /* Markdown 源码编辑器 */
 #md-source {

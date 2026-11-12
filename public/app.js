@@ -77,11 +77,14 @@
     const hl = document.getElementById('hljs-theme');
     if (hl) {
       hl.href = t === 'dark'
-        ? 'vendor/vditor/dist/js/highlight.js/styles/github-dark.min.css'
-        : 'vendor/vditor/dist/js/highlight.js/styles/github.min.css';
+        ? 'vendor/highlightjs/highlight.js/styles/github-dark.min.css'
+        : 'vendor/highlightjs/highlight.js/styles/github.min.css';
     }
     if (typeof monaco !== 'undefined' && monacoEditor) {
       try { monaco.editor.setTheme(monacoThemeName()); } catch (e) { /* ignore */ }
+    }
+    if (typeof vditor !== 'undefined' && vditor && vditor.setThemeName) {
+      vditor.setThemeName(cherryThemeName());
     }
     document.querySelectorAll('[data-theme-opt]').forEach((b) => {
       b.classList.toggle('active', b.dataset.themeOpt === themePref);
@@ -1612,135 +1615,6 @@
     }
   }
 
-  // ---------- Math Modal ----------
-  let mathModalResolve = null;
-  let mathModalMode = 'inline'; // 'inline' or 'block'
-
-  function showMathModal(defaultLatex, mode, editor, editPos) {
-    mathModalMode = mode || 'inline';
-    return new Promise((resolve) => {
-      mathModalResolve = resolve;
-      const modal = $('#math-modal');
-      const input = $('#math-input');
-      const title = $('#math-modal-title');
-      title.textContent = mode === 'block' ? '插入块级公式' : '插入行内公式';
-      input.value = defaultLatex || '';
-      $('#math-preview').innerHTML = '<span class="math-placeholder">公式预览</span>';
-      modal.classList.remove('hidden');
-      input.focus();
-      updateMathPreview();
-      modal._mathEditor = editor || null;
-      modal._mathEditPos = editPos != null ? editPos : null;
-    });
-  }
-
-  function updateMathPreview() {
-    const input = $('#math-input');
-    const preview = $('#math-preview');
-    const latex = input.value.trim();
-    if (!latex) { preview.innerHTML = '<span class="math-placeholder">公式预览</span>'; return; }
-    try {
-      if (window.katex) {
-        preview.innerHTML = window.katex.renderToString(latex, { displayMode: mathModalMode === 'block', throwOnError: false, strict: false });
-      } else {
-        preview.textContent = latex;
-      }
-    } catch { preview.textContent = latex; }
-  }
-
-  function initMathModal() {
-    const modal = $('#math-modal');
-    const input = $('#math-input');
-    if (!modal || !input) return;
-
-    input.addEventListener('input', updateMathPreview);
-
-    $('#math-modal-close').addEventListener('click', () => {
-      modal.classList.add('hidden');
-      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
-    });
-    modal.querySelector('.modal-overlay').addEventListener('click', () => {
-      modal.classList.add('hidden');
-      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
-    });
-    $('#math-modal-cancel').addEventListener('click', () => {
-      modal.classList.add('hidden');
-      if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
-    });
-    $('#math-modal-ok').addEventListener('click', () => {
-      const latex = input.value.trim();
-      const ed = modal._mathEditor;
-      const editPos = modal._mathEditPos;
-      modal.classList.add('hidden');
-      if (ed && latex) {
-        const isBlock = mathModalMode === 'block';
-        const nodeName = isBlock ? 'blockMath' : 'inlineMath';
-        let nodeType = ed.state.schema.nodes[nodeName];
-        // Fallback: try common alternative names
-        if (!nodeType) nodeType = ed.state.schema.nodes['math'];
-        if (!nodeType) nodeType = ed.state.schema.nodes['katex'];
-        if (!nodeType) {
-          // Debug: find any node containing 'math' in its name
-          const mathNodes = Object.keys(ed.state.schema.nodes).filter(n => n.toLowerCase().includes('math') || n.toLowerCase().includes('katex'));
-          console.log('Available schema nodes:', Object.keys(ed.state.schema.nodes));
-          console.log('Math-related nodes:', mathNodes);
-          toast('数学公式扩展未加载，可用节点: ' + Object.keys(ed.state.schema.nodes).join(', '), true);
-          return;
-        }
-
-        if (editPos != null) {
-          // Editing existing — replace node at position
-          const node = nodeType.create({ latex });
-          const tr = ed.state.tr.setNodeMarkup(editPos, undefined, { latex });
-          ed.view.dispatch(tr);
-          ed.commands.focus();
-        } else {
-          // Inserting new
-          const node = nodeType.create({ latex });
-          const { from } = ed.state.selection;
-          const tr = ed.state.tr.insert(from, node);
-          ed.view.dispatch(tr);
-          ed.commands.focus();
-        }
-      }
-      if (mathModalResolve) { mathModalResolve(latex || null); mathModalResolve = null; }
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        $('#math-modal-ok').click();
-      }
-      if (e.key === 'Escape') {
-        modal.classList.add('hidden');
-        if (mathModalResolve) { mathModalResolve(null); mathModalResolve = null; }
-      }
-    });
-
-    // Symbol buttons insert at cursor
-    modal.querySelectorAll('[data-math]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const sym = btn.dataset.math;
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        input.value = input.value.slice(0, start) + sym + input.value.slice(end);
-        input.selectionStart = input.selectionEnd = start + sym.length;
-        input.focus();
-        updateMathPreview();
-      });
-    });
-
-    // Help button
-    $('#math-help-btn').addEventListener('click', () => {
-      $('#math-help-modal').classList.remove('hidden');
-    });
-    $('#math-help-close').addEventListener('click', () => {
-      $('#math-help-modal').classList.add('hidden');
-    });
-    $('#math-help-modal').querySelector('.modal-overlay').addEventListener('click', () => {
-      $('#math-help-modal').classList.add('hidden');
-    });
-  }
-
   function ensureMonaco() {
     if (monacoReady && monacoEditor) return Promise.resolve(monacoEditor);
     return new Promise((resolve, reject) => {
@@ -1834,157 +1708,64 @@
     if (state.currentRel) openCurrentNote();
   }
 
-  // ---------- 数学公式：$..$ / $$..$$ / \(..\) / \[.. \] 文本 → 公式节点 ----------
-  // 支持的定界符：$$..$$（块级）、\[..\]（块级）、\(..\)（行内）、$..$（行内），
-  // 以及外部文档常见转义形式：\\(..\\)、\\[..\\]、\$..\$（定界符前允许多个反斜杠）
-  // 货币保护：$ 两侧紧贴空白或内容为纯数字金额时不视为公式
-
-  // 双转义公式内容规范化：\\frac → \frac（双转义命令），\\\\ → \\（双转义换行）；
-  // 单反斜杠换行 \\ 后跟换行/空格/& 等的合法用法保留不动
-  function normalizeLatex(s) {
-    return s
-      .replace(/\\\\\\\\/g, '\\\\')
-      .replace(/\\\\([a-zA-Z])/g, '\\$1')
-      // markdown 转义的括号/下标还原（KaTeX 中 \[ \] \_ 会报错或显示为字面量）；
-      // 保留 \\[0.5em] 这类行尾间距参数
-      .replace(/\\+\[(?!\s*[\d.]+(?:em|ex|px|pt|cm|mm|in)\])/g, '[')
-      .replace(/\\+\]/g, ']')
-      .replace(/\\+_/g, '_')
-      // 行尾/末尾孤立反斜杠（KaTeX 报错）
-      .replace(/\\+[\s]*$/, '');
-  }
-
-  // 裸公式识别（无 $ 定界符但明显是 LaTeX 公式的整段文本）：
-  // 典型来自 AI 生成/外部粘贴的文档，公式未包定界符，如 "Alt(u) = Alt\_{low} + ... \in \[0,1\]"
-  function detectBareEquation(t) {
-    const s = String(t || '').trim();
-    if (!s || s.indexOf('$') !== -1 || s.indexOf('`') !== -1) return null;
-    if (/[一-鿿　-〿＀-￯]/.test(s)) return null; // 含中文/全角字符的是正常行文
-    if (s.indexOf('=') === -1) return null;
-    // 标题/列表/引用等 markdown 结构行不作为公式
-    if (/^[ \t]*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|---\s*$)/.test(s)) return null;
-    const strong = /\\(frac|cdot|times|div|sqrt|sum|prod|int|lim|cos|sin|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|pi|alpha|beta|gamma|delta|Delta|theta|varphi|phi|lambda|mu|nu|rho|sigma|tau|omega|infty|left|right|quad|qquad|begin|end|leq|geq|neq|approx|equiv|partial|nabla|mathbb|mathrm|operatorname|overline|hat|vec|subset|supset|cup|cap|land|lor|forall|exists)\b/.test(s);
-    const subscript = /[_^]\\?\{/.test(s); // 含下标或上标（含转义形式）
-    if (!strong && !subscript) return null;
-    return s;
-  }
-
-  function splitMathParts(src) {
-    // 无定界符公式：整段作为块级公式（须在定界符正则之前，
-    // 否则内部 \[0,1\] 等会被拆成独立小公式）。含 $ 的混合文本不满足裸公式条件，不受影响
-    const bare = detectBareEquation(src);
-    if (bare) return [{ math: normalizeLatex(bare), block: true }];
-    const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$\$(?=\s|$)|\\+\[([\s\S]+?)\\+\]|\\+\(([\s\S]+?)\\+\)|\\+\$([^$\n]+?)\\+\$|\$([^$\n]+?)\$/g;
-    let last = 0;
-    let m;
-    let parts = null;
-    const isCurrency = (inner) => /^\s|\s$/.test(inner) || /^[\d.,\s]+$/.test(inner);
-    while ((m = re.exec(src))) {
-      let math = null;
-      let block = false;
-      if (m[1] !== undefined) { math = normalizeLatex(m[1].trim()); block = true; }
-      else if (m[2] !== undefined) {
-        // m[2] = $..\$\$（单开双闭错配，外部文档常见），货币保护
-        if (isCurrency(m[2])) { re.lastIndex = m.index + 1; continue; }
-        math = normalizeLatex(m[2].trim());
+  // ---------- 编辑器：Cherry Markdown（变量名 vditor 为历史遗留，对外接口保持兼容） ----------
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const old = document.querySelector('script[data-edl="' + src + '"]');
+      if (old) {
+        if (old._done) { resolve(); return; }
+        old.addEventListener('load', resolve);
+        old.addEventListener('error', () => reject(new Error('加载失败: ' + src)));
+        return;
       }
-      else if (m[3] !== undefined) { math = normalizeLatex(m[3].trim()); block = true; }
-      else if (m[4] !== undefined) { math = normalizeLatex(m[4].trim()); }
-      else {
-        // m[5]=\$..\$，m[6]=$..$：货币等误伤保护。
-        // 从开定界符后一位继续扫描，保证后面的真公式（如 $100 和 $x^2$）不被漏掉
-        const inner = m[5] !== undefined ? m[5] : m[6];
-        if (isCurrency(inner)) {
-          re.lastIndex = m.index + 1;
-          continue;
-        }
-        math = normalizeLatex(inner.trim());
-      }
-      if (!math) continue;
-      if (!parts) parts = [];
-      if (m.index > last) parts.push({ text: src.slice(last, m.index) });
-      parts.push({ math, block });
-      last = re.lastIndex;
-    }
-    if (!parts) return null;
-    if (last < src.length) parts.push({ text: src.slice(last) });
-    return parts;
-  }
-
-  // 把 splitMathParts 的结果构建为 ProseMirror 内容（段落 + 块级公式节点）
-  // 直接插入节点 JSON，绕过 markdown 字符串解析的不确定行为
-  function mathPartsToContent(parts) {
-    const blocks = [];
-    let inline = [];
-    const flush = () => { if (inline.length) { blocks.push({ type: 'paragraph', content: inline }); inline = []; } };
-    const pushText = (txt) => {
-      const paras = txt.split(/\n{2,}/);
-      paras.forEach((p, idx) => {
-        if (idx > 0) flush();
-        const lines = p.split('\n');
-        lines.forEach((line, i) => {
-          if (i > 0) inline.push({ type: 'hardBreak' });
-          if (line) inline.push({ type: 'text', text: line });
-        });
-      });
-    };
-    for (const part of parts) {
-      if (part.math) {
-        if (part.block) {
-          flush();
-          blocks.push({ type: 'blockMath', attrs: { latex: part.math } });
-        } else {
-          inline.push({ type: 'inlineMath', attrs: { latex: part.math } });
-        }
-      } else if (part.text) {
-        pushText(part.text);
-      }
-    }
-    flush();
-    return blocks;
-  }
-
-  function convertMathTextNodes(root) {
-    if (!root || !document.createTreeWalker) return;
-    const skipTags = { CODE: 1, PRE: 1, SCRIPT: 1, STYLE: 1 };
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const v = node.nodeValue;
-        // $..$ / \(..\) / \[..\] 任一形态都可能含公式（双转义 \\(..\\) 也含子串 \(..\)；
-        // 无定界符但满足裸公式特征（如 "Alt(u) = Alt\_{low} + \frac..."）也接受
-        if (
-          !v ||
-          (v.indexOf('$') === -1 && v.indexOf('\\(') === -1 && v.indexOf('\\[') === -1 && !detectBareEquation(v))
-        ) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        let el = node.parentElement;
-        while (el && el !== root) {
-          if (skipTags[el.tagName] || el.hasAttribute('data-inline-math') || el.hasAttribute('data-block-math')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          el = el.parentElement;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      },
+      const s = document.createElement('script');
+      s.src = src;
+      s.dataset.edl = src;
+      s.onload = () => { s._done = true; resolve(); };
+      s.onerror = () => reject(new Error('加载失败: ' + src));
+      document.head.appendChild(s);
     });
-    const targets = [];
-    while (walker.nextNode()) targets.push(walker.currentNode);
-    for (const textNode of targets) {
-      const parts = splitMathParts(textNode.nodeValue);
-      if (!parts) continue;
-      const frag = document.createDocumentFragment();
-      for (const part of parts) {
-        if (part.math) {
-          const el = document.createElement(part.block ? 'div' : 'span');
-          el.setAttribute(part.block ? 'data-block-math' : 'data-inline-math', '');
-          el.setAttribute('latex', part.math);
-          frag.appendChild(el);
-        } else {
-          frag.appendChild(document.createTextNode(part.text));
-        }
-      }
-      if (textNode.parentNode) textNode.parentNode.replaceChild(frag, textNode);
+  }
+
+  function loadCssOnce(href) {
+    if (document.querySelector('link[data-edl="' + href + '"]')) return;
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = href;
+    l.dataset.edl = href;
+    document.head.appendChild(l);
+  }
+
+  function cherryThemeName() {
+    return resolveTheme() === 'dark' ? 'dark' : 'default';
+  }
+
+  // 图片相对路径 → /api/file（Cherry 渲染图片 URL 都会过这里，编辑器与预览一致）
+  function cherryUrlProcessor(url, srcType) {
+    if (srcType !== 'image' || !url || /^(https?:|data:|blob:|\/|#)/.test(url)) return url;
+    const rel2 = resolveRelImgSrc(url, state.currentRel);
+    if (!rel2) return url;
+    return '/api/file?rel=' + encodeURIComponent(rel2) +
+      (state.currentNoteDir ? '&dir=' + encodeURIComponent(state.currentNoteDir) : '');
+  }
+
+  // 粘贴 / 拖拽 / 工具栏上传图片（Cherry fileUpload 回调，签名 callback(url)）
+  async function cherryFileUpload(file, callback) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const upDir = currentUploadDir();
+      if (upDir) formData.append('dir', upDir);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error('上传失败（服务器返回非 JSON 响应）');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '上传失败');
+      toast('已上传: ' + (file.name || '图片'));
+      callback(data.url);
+    } catch (err) {
+      toast('图片上传失败: ' + err.message, true);
+      callback('');
     }
   }
 
@@ -1992,574 +1773,253 @@
     if (vditor) return Promise.resolve(vditor);
     return new Promise(async (resolve, reject) => {
       try {
-        const tiptapCore = await import('@tiptap/core');
-        const tiptapKit = await import('@tiptap/starter-kit');
-        const tiptapMd = await import('tiptap-markdown');
-        const tiptapTaskList = await import('@tiptap/extension-task-list');
-        const tiptapTaskItem = await import('@tiptap/extension-task-item');
-        const tiptapImage = await import('@tiptap/extension-image');
-        const tiptapLink = await import('@tiptap/extension-link');
-        const katex = await import('katex');
+        loadCssOnce('vendor/cherry/dist/cherry-markdown.min.css');
+        loadCssOnce('vendor/cherry/dist/cherry-markdown.markdown.min.css');
+        loadCssOnce('vendor/katex/katex.min.css');
+        await loadScriptOnce('vendor/katex/katex.min.js');
+        await loadScriptOnce('vendor/cherry/dist/cherry-markdown.min.js');
+        const Cherry = window.Cherry;
+        if (!Cherry) throw new Error('Cherry 未加载（vendor/cherry 缺失？）');
 
-        const Editor = tiptapCore.Editor;
-        const Node = tiptapCore.Node;
-        const StarterKit = tiptapKit.StarterKit || tiptapKit.default;
-        const Markdown = tiptapMd.Markdown || tiptapMd.default;
-        const TaskList = tiptapTaskList.TaskList || tiptapTaskList.default;
-        const TaskItem = tiptapTaskItem.TaskItem || tiptapTaskItem.default;
-        const Image = tiptapImage.Image || tiptapImage.default;
-        // 编辑器图片显示层：相对路径按当前笔记目录改写为 /api/file。
-        // 只改 renderHTML，节点 attrs.src 保持原始相对路径，保存 markdown 时原样写回。
-        const NoteImage = Image.extend({
-          renderHTML({ HTMLAttributes }) {
-            const attrs = { ...HTMLAttributes };
-            if (attrs.src) {
-              const rel2 = resolveRelImgSrc(attrs.src, state.currentRel);
-              if (rel2) {
-                attrs.src = '/api/file?rel=' + encodeURIComponent(rel2) +
-                  (state.currentNoteDir ? '&dir=' + encodeURIComponent(state.currentNoteDir) : '');
-              }
-            }
-            return ['img', { ...this.options.HTMLAttributes, ...attrs }];
-          },
-        });
-        const Link = tiptapLink.Link || tiptapLink.default;
+        const el = document.getElementById('vditor-wrap');
+        el.innerHTML = '';
 
-        if (!Editor) { reject(new Error('Editor 未加载: ' + Object.keys(tiptapCore).join(','))); return; }
-        if (!StarterKit) { reject(new Error('StarterKit 未加载: ' + Object.keys(tiptapKit).join(','))); return; }
-        if (!Markdown) { reject(new Error('Markdown 未加载: ' + Object.keys(tiptapMd).join(','))); return; }
-
-        // Custom math extensions (replaces @tiptap/extension-mathematics which requires v3)
-        const InlineMath = Node.create({
-          name: 'inlineMath',
-          group: 'inline',
-          inline: true,
-          atom: true,
-          addAttributes() { return { latex: { default: '' } }; },
-          addStorage() {
-            return {
-              markdown: {
-                // 序列化为 $...$（preview 与外部编辑器均可识别），避免回落到 HTML span
-                serialize(state, node) {
-                  const latex = String(node.attrs.latex || '').replace(/\s*\n\s*/g, ' ').trim();
-                  state.text('$' + latex + '$', false);
-                },
-                parse: {
-                  // markdown 解析后把文本中的 $..$ / $$..$$ 转为公式节点
-                  updateDOM: convertMathTextNodes,
-                },
-              },
-            };
-          },
-          parseHTML() { return [{ tag: 'span[data-inline-math]' }]; },
-          renderHTML({ HTMLAttributes }) {
-            return ['span', { 'data-inline-math': '', ...HTMLAttributes }];
-          },
-          addNodeView() {
-            return ({ node, getPos }) => {
-              const dom = document.createElement('span');
-              dom.className = 'math-inline';
-              dom.setAttribute('data-latex', node.attrs.latex);
-              dom.style.cursor = 'pointer';
-              const render = () => {
-                try {
-                  if (window.katex) {
-                    dom.innerHTML = window.katex.renderToString(node.attrs.latex, { throwOnError: false, strict: false });
-                  } else {
-                    dom.textContent = '$' + node.attrs.latex + '$';
-                  }
-                } catch { dom.textContent = '$' + node.attrs.latex + '$'; }
-              };
-              render();
-              dom.addEventListener('click', () => {
-                const pos = typeof getPos === 'function' ? getPos() : null;
-                if (pos != null) showMathModal(node.attrs.latex, 'inline', editorRef.current, pos);
-              });
-              return {
-                dom,
-                update: (updatedNode) => {
-                  if (updatedNode.type.name !== 'inlineMath') return false;
-                  node = updatedNode;
-                  dom.setAttribute('data-latex', node.attrs.latex);
-                  render();
-                  return true;
-                },
-              };
-            };
-          },
-        });
-
-        const BlockMath = Node.create({
-          name: 'blockMath',
-          group: 'block',
-          atom: true,
-          addAttributes() { return { latex: { default: '' } }; },
-          addStorage() {
-            return {
-              markdown: {
-                // 序列化为独立 $$...$$ 块
-                serialize(state, node) {
-                  const latex = String(node.attrs.latex || '');
-                  state.write('$$\n');
-                  state.text(latex, false);
-                  state.ensureNewLine();
-                  state.write('$$');
-                  state.closeBlock(node);
-                },
-                parse: {
-                  updateDOM: convertMathTextNodes,
-                },
-              },
-            };
-          },
-          parseHTML() { return [{ tag: 'div[data-block-math]' }]; },
-          renderHTML({ HTMLAttributes }) {
-            return ['div', { 'data-block-math': '', ...HTMLAttributes }];
-          },
-          addNodeView() {
-            return ({ node, getPos }) => {
-              const dom = document.createElement('div');
-              dom.className = 'math-block';
-              dom.setAttribute('data-latex', node.attrs.latex);
-              dom.style.cursor = 'pointer';
-              const render = () => {
-                try {
-                  if (window.katex) {
-                    dom.innerHTML = window.katex.renderToString(node.attrs.latex, { displayMode: true, throwOnError: false, strict: false });
-                  } else {
-                    dom.textContent = '$$' + node.attrs.latex + '$$';
-                  }
-                } catch { dom.textContent = '$$' + node.attrs.latex + '$$'; }
-              };
-              render();
-              dom.addEventListener('click', () => {
-                const pos = typeof getPos === 'function' ? getPos() : null;
-                if (pos != null) showMathModal(node.attrs.latex, 'block', editorRef.current, pos);
-              });
-              return {
-                dom,
-                update: (updatedNode) => {
-                  if (updatedNode.type.name !== 'blockMath') return false;
-                  node = updatedNode;
-                  dom.setAttribute('data-latex', node.attrs.latex);
-                  render();
-                  return true;
-                },
-              };
-            };
-          },
-        });
-
-        const editorRef = { current: null };
-
-        async function createEditor(markdown) {
-          const el = document.getElementById('vditor-wrap');
-          el.innerHTML = '';
-          const editor = new Editor({
-            element: el,
-            extensions: [
-              StarterKit.configure({
-                heading: { levels: [1, 2, 3, 4, 5, 6] },
-              }),
-              Markdown.configure({
-                html: true,
-                linkify: true,
-                transformPastedText: true,
-                transformCopiedText: true,
-              }),
-              TaskList,
-              TaskItem.configure({ nested: true }),
-              NoteImage.configure({
-                inline: true,
-                allowBase64: true,
-              }),
-              Link.configure({
-                openOnClick: false,
-                autolink: true,
-                HTMLAttributes: { class: 'tiptap-link' },
-              }),
-              InlineMath,
-              BlockMath,
-            ],
-            content: markdown || '',
-            editorProps: {
-              attributes: {
-                class: 'tiptap-editor',
-              },
-              handlePaste: (view, event) => {
-                const items = event.clipboardData?.items;
-                if (items) {
-                  for (const item of items) {
-                    if (item.type.startsWith('image/')) {
-                      event.preventDefault();
-                      const file = item.getAsFile();
-                      if (file) uploadAndInsertImage(file);
-                      return true;
-                    }
-                  }
-                }
-                // Auto-parse $...$ / $$...$$ / \(..\)/\[..\] from pasted text
-                const text = event.clipboardData?.getData('text/plain');
-                if (text && /[$\\]/.test(text)) {
-                  const parts = splitMathParts(text);
-                  if (parts && parts.some((p) => p.math)) {
-                    event.preventDefault();
-                    const ed = editorRef.current;
-                    if (!ed) return false;
-                    // 直接构建公式节点 JSON 插入：混合文本、多公式、块级+行内混排都能正确解析
-                    const content = mathPartsToContent(parts);
-                    if (content.length) ed.chain().focus().insertContent(content).run();
-                    return true;
-                  }
-                }
-                return false;
-              },
-              handleDrop: (view, event) => {
-                const files = event.dataTransfer?.files;
-                if (!files) return false;
-                for (const file of files) {
-                  if (file.type.startsWith('image/')) {
-                    event.preventDefault();
-                    uploadAndInsertImage(file);
-                    return true;
-                  }
-                }
-                return false;
-              },
+        const cherry = new Cherry({
+          id: 'vditor-wrap',
+          value: '',
+          locale: 'zh_CN',
+          externals: { katex: window.katex },
+          themeSettings: { mainTheme: cherryThemeName(), codeBlockTheme: 'default', inlineCodeTheme: 'red' },
+          engine: {
+            global: { urlProcessor: cherryUrlProcessor },
+            syntax: {
+              mathBlock: { engine: 'katex' },
+              inlineMath: { engine: 'katex' },
+              table: { selfClosing: true },
             },
-          });
-          editorRef.current = editor;
-          console.log('Editor schema nodes:', Object.keys(editor.state.schema.nodes));
-          console.log('Editor schema marks:', Object.keys(editor.state.schema.marks));
-          wireSelectionAi(editor);
-          return editor;
-        }
-
-        async function uploadAndInsertImage(file) {
-          const ed = editorRef.current;
-          if (!ed) return;
-          const formData = new FormData();
-          formData.append('file', file);
-          const upDir = currentUploadDir();
-          if (upDir) formData.append('dir', upDir);
-          try {
-            toast('正在上传图片...');
-            const res = await fetch('/api/upload', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '上传失败');
-            ed.chain().focus().setImage({ src: data.url, alt: file.name || '' }).run();
-            toast('图片已上传');
-          } catch (err) {
-            toast('图片上传失败: ' + err.message, true);
-          }
-        }
-
-        // ---------- 选区 AI 助手（验证）：右键菜单 → 透明弹出层 → 替换/插入 ----------
-        const assist = { action: '', text: '', from: 0, to: 0, markdown: '', html: '', wired: false, reqId: 0 };
-
-        function captureSelInfo(ed) {
-          try {
-            const s = ed.state.selection;
-            if (s.empty) return null;
-            const text = ed.state.doc.textBetween(s.from, s.to, '\n');
-            if (!text.trim()) return null;
-            const c1 = ed.view.coordsAtPos(s.from);
-            const c2 = ed.view.coordsAtPos(s.to);
-            return {
-              from: s.from,
-              to: s.to,
-              text,
-              rect: {
-                left: Math.min(c1.left, c2.left),
-                right: Math.max(c1.right, c2.right),
-                top: Math.min(c1.top, c2.top),
-                bottom: Math.max(c1.bottom, c2.bottom),
-              },
-            };
-          } catch (e) {
-            return null;
-          }
-        }
-
-        function wireSelectionAi(ed) {
-          const dom = ed.view.dom;
-          if (dom._aiWired) return;
-          dom._aiWired = true;
-          // 右键按下时快照选区（捕获阶段：先于 ProseMirror 的 mousedown 处理，避免选区已被折叠）
-          dom.addEventListener('mousedown', (e) => {
-            if (e.button === 2) window._aiSel = captureSelInfo(ed);
-          }, true);
-          dom.addEventListener('contextmenu', (e) => {
-            const info = captureSelInfo(ed) || window._aiSel;
-            window._aiSel = null;
-            hideCtxMenu();
-            if (!info) return; // 无选区：保留浏览器默认菜单
-            e.preventDefault();
-            window._aiSel = info;
-            showCtxMenu(e.clientX, e.clientY, [
-              { action: 'ai-explain', label: '✨ AI 解释与扩展' },
-              { action: 'ai-rewrite', label: '✨ AI 改写润色' },
-            ]);
-          });
-        }
-
-        function positionAssistPop() {
-          const pop = $('#ai-assist-pop');
-          const ed = editorRef.current;
-          if (!pop || pop.classList.contains('hidden') || !ed || !assist.text) return;
-          let rect;
-          try {
-            const c1 = ed.view.coordsAtPos(assist.from);
-            const c2 = ed.view.coordsAtPos(assist.to);
-            rect = {
-              left: Math.min(c1.left, c2.left),
-              right: Math.max(c1.right, c2.right),
-              top: Math.min(c1.top, c2.top),
-              bottom: Math.max(c1.bottom, c2.bottom),
-            };
-          } catch (e) {
-            return;
-          }
-          const w = pop.offsetWidth || 452;
-          const h = pop.offsetHeight || 200;
-          const maxH = window.innerHeight - 20;
-          let x = Math.min(rect.left, window.innerWidth - w - 10);
-          let y;
-          if (rect.bottom + 10 + h <= window.innerHeight - 10) {
-            y = rect.bottom + 10; // 首选：选区下方
-          } else if (rect.top - h - 10 >= 10) {
-            y = rect.top - h - 10; // 次选：选区上方
-          } else {
-            y = window.innerHeight - Math.min(h, maxH) - 10; // 上下都放不下：贴视口底，保证可用
-          }
-          pop.style.left = Math.max(10, x) + 'px';
-          pop.style.top = Math.max(10, y) + 'px';
-        }
-
-        function hideAssistPop() {
-          const pop = $('#ai-assist-pop');
-          if (pop) pop.classList.add('hidden');
-          assist.reqId++; // 使进行中的请求失效
-        }
-
-        function bindAssistPop() {
-          if (assist.wired) return;
-          assist.wired = true;
-          const pop = $('#ai-assist-pop');
-          $('#aap-close').addEventListener('click', hideAssistPop);
-          pop.querySelectorAll('.aap-btn').forEach((btn) =>
-            btn.addEventListener('click', async () => {
-              const ed = editorRef.current;
-              const act = btn.dataset.aap;
-              if (act === 'regen') {
-                runAssist(assist.action);
-                return;
-              }
-              if (act === 'copy') {
-                try {
-                  await navigator.clipboard.writeText(assist.markdown);
-                  toast('已复制结果');
-                } catch (e) {
-                  toast('复制失败: ' + e.message, true);
-                }
-                return;
-              }
-              if (!ed || !assist.html) return;
-              // 选区防漂移：确认原文未变
-              let cur = '';
-              try {
-                cur = ed.state.doc.textBetween(assist.from, assist.to, '\n');
-              } catch (e) { /* ignore */ }
-              if (cur !== assist.text) {
-                toast('选区内容已变化，请重新选择', true);
-                hideAssistPop();
-                return;
-              }
-              if (act === 'replace') {
-                ed.chain().focus().deleteRange({ from: assist.from, to: assist.to }).insertContent(assist.html).run();
-                toast('已用 AI 结果替换选中内容');
-              } else if (act === 'insert') {
-                ed.chain().focus().insertContentAt(assist.to, assist.html).run();
-                toast('已插入到选区下方');
-              }
-              hideAssistPop();
-            })
-          );
-          document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') hideAssistPop();
-          });
-          window.addEventListener('scroll', positionAssistPop, true);
-          window.addEventListener('resize', positionAssistPop);
-          // 编辑器关闭时自动收起弹出层与菜单
-          const edEl = $('#editor');
-          if (edEl && !edEl._aiObs) {
-            edEl._aiObs = true;
-            new MutationObserver(() => {
-              if (edEl.classList.contains('hidden')) {
-                hideAssistPop();
-                hideCtxMenu();
-              }
-            }).observe(edEl, { attributes: true, attributeFilter: ['class'] });
-          }
-        }
-
-        async function runAssist(action) {
-          const sel = window._aiSel;
-          if (!sel) {
-            toast('请先选择内容', true);
-            return;
-          }
-          assist.action = action;
-          assist.text = sel.text;
-          assist.from = sel.from;
-          assist.to = sel.to;
-          assist.markdown = '';
-          assist.html = '';
-          bindAssistPop();
-          const pop = $('#ai-assist-pop');
-          const bodyEl = $('#aap-body');
-          $('#aap-title').textContent = action === 'rewrite' ? '✨ AI 改写润色' : '✨ AI 解释与扩展';
-          $('#aap-status').textContent = '';
-          bodyEl.classList.add('aap-loading');
-          bodyEl.innerHTML = '<div class="aap-placeholder">正在生成，请稍候…</div>';
-          pop.classList.remove('hidden');
-          positionAssistPop();
-          const reqId = ++assist.reqId;
-          try {
-            const d = await api('/api/ai/assist', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action, text: assist.text, title: $('#edit-title').value || '' }),
-            });
-            if (reqId !== assist.reqId) return; // 已关闭或重新发起
-            assist.markdown = String(d.content || '');
-            assist.html = window.renderMarkdown ? renderMarkdown(assist.markdown) : '<p>' + esc(assist.markdown) + '</p>';
-            bodyEl.classList.remove('aap-loading');
-            bodyEl.innerHTML = assist.html;
-            $('#aap-status').textContent = '完成 · ' + assist.markdown.length + ' 字';
-            positionAssistPop();
-          } catch (e) {
-            if (reqId !== assist.reqId) return;
-            bodyEl.classList.remove('aap-loading');
-            bodyEl.innerHTML = '<div class="aap-placeholder error">' + esc(e.message) + '</div>';
-            $('#aap-status').textContent = '失败';
-          }
-        }
-
-    ctxActions['ai-explain'] = () => runAssist('explain');
-    ctxActions['ai-rewrite'] = () => runAssist('rewrite');
-
-        await createEditor('');
-
-        function wireToolbar() {
-          const bar = document.getElementById('editor-format-bar');
-          if (!bar || bar._wired) return;
-          bar._wired = true;
-          bar.addEventListener('click', (e) => {
-            const btn = e.target.closest('button');
-            if (!btn) return;
-            const ed = editorRef.current;
-            if (!ed) return;
-            const cmd = btn.dataset.cmd;
-            const level = parseInt(btn.dataset.level);
-            const chain = ed.chain().focus();
-            switch (cmd) {
-              case 'toggleBold': chain.toggleBold().run(); break;
-              case 'toggleItalic': chain.toggleItalic().run(); break;
-              case 'toggleStrike': chain.toggleStrike().run(); break;
-              case 'toggleCode': chain.toggleCode().run(); break;
-              case 'setHeading': chain.toggleHeading({ level }).run(); break;
-              case 'setParagraph': chain.setParagraph().run(); break;
-              case 'toggleBulletList': chain.toggleBulletList().run(); break;
-              case 'toggleOrderedList': chain.toggleOrderedList().run(); break;
-              case 'toggleTaskList': chain.toggleTaskList().run(); break;
-              case 'toggleBlockquote': chain.toggleBlockquote().run(); break;
-              case 'setCodeBlock': chain.toggleCodeBlock().run(); break;
-              case 'setHorizontalRule': chain.setHorizontalRule().run(); break;
-              case 'setLink': {
-                const url = prompt('输入链接地址：', 'https://');
-                if (url) chain.setLink({ href: url }).run();
-                break;
-              }
-              case 'setImage': {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'image/*';
-                input.onchange = () => {
-                  const file = input.files[0];
-                  if (file) uploadAndInsertImage(file);
-                };
-                input.click();
-                break;
-              }
-              case 'insertInlineMath': {
-                showMathModal('E = mc^2', 'inline', editorRef.current);
-                break;
-              }
-              case 'insertBlockMath': {
-                showMathModal('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', 'block', editorRef.current);
-                break;
-              }
-              case 'undo': chain.undo().run(); break;
-              case 'redo': chain.redo().run(); break;
-            }
-          });
-          function updateActiveStates() {
-            const ed = editorRef.current;
-            if (!ed) return;
-            bar.querySelectorAll('button[data-cmd]').forEach(btn => {
-              const cmd = btn.dataset.cmd;
-              let isActive = false;
-              switch (cmd) {
-                case 'toggleBold': isActive = ed.isActive('bold'); break;
-                case 'toggleItalic': isActive = ed.isActive('italic'); break;
-                case 'toggleStrike': isActive = ed.isActive('strike'); break;
-                case 'toggleCode': isActive = ed.isActive('code'); break;
-                case 'setHeading': isActive = ed.isActive('heading', { level: parseInt(btn.dataset.level) }); break;
-                case 'setParagraph': isActive = ed.isActive('paragraph'); break;
-                case 'toggleBulletList': isActive = ed.isActive('bulletList'); break;
-                case 'toggleOrderedList': isActive = ed.isActive('orderedList'); break;
-                case 'toggleTaskList': isActive = ed.isActive('taskList'); break;
-                case 'toggleBlockquote': isActive = ed.isActive('blockquote'); break;
-                case 'setCodeBlock': isActive = ed.isActive('codeBlock'); break;
-              }
-              btn.classList.toggle('active', isActive);
-            });
-          }
-          const ed2 = editorRef.current;
-          if (!ed2) return;
-          ed2.on('selectionUpdate', updateActiveStates);
-          ed2.on('transaction', updateActiveStates);
-        }
-        wireToolbar();
-        initMathModal();
+          },
+          toolbars: {
+            toolbar: ['bold', 'italic', 'strikethrough', '|', 'color', 'header', '|',
+              'list', 'checklist', '|',
+              'table', 'image', 'link', 'formula', 'code', 'hr', 'toc', '|',
+              'search', 'togglePreview'],
+            bubble: ['bold', 'italic', 'underline', 'strikethrough', 'sub', 'sup', 'quote', '|', 'size', 'color'],
+            float: ['h1', 'h2', 'h3', '|', 'checklist', 'quote', 'table', 'code'],
+          },
+          fileUpload: cherryFileUpload,
+          event: {
+            afterInit() { wireCherrySelectionAi(); },
+          },
+        });
 
         vditor = {
-          _editor: editorRef.current,
-          getValue() {
-            const ed = editorRef.current;
-            if (!ed) return '';
-            try {
-              return ed.storage.markdown.getMarkdown();
-            } catch {
-              return ed.getText();
-            }
-          },
-          setValue(markdown) {
-            createEditor(markdown);
-          },
-          insertValue(markdown) {
-            const ed = editorRef.current;
-            if (!ed) return;
-            ed.chain().focus().insertContent(markdown).run();
-          },
+          _editor: cherry,
+          getValue() { try { return cherry.getMarkdown(); } catch { return ''; } },
+          setValue(md) { try { cherry.setMarkdown(md || ''); } catch (e) { console.error('setMarkdown 失败', e); } },
+          insertValue(md) { try { cherry.insert(md, false, false, true); } catch (e) { console.error('insert 失败', e); } },
+          setThemeName(name) { try { cherry.setTheme(name); } catch { /* ignore */ } },
         };
+        // afterInit 可能先于 DOM 就绪，补一次（幂等）
+        setTimeout(wireCherrySelectionAi, 300);
         resolve(vditor);
       } catch (e) {
         reject(e);
       }
     });
   }
+
+  // ---------- 选区 AI 助手（CodeMirror 视图适配） ----------
+  function cherryCmView() {
+    try {
+      const c = vditor && vditor._editor;
+      return c && typeof c.getCodeMirror === 'function' ? c.getCodeMirror() : null;
+    } catch { return null; }
+  }
+
+  function captureSelInfo() {
+    const view = cherryCmView();
+    if (!view || !view.state) return null;
+    try {
+      const sel = view.state.selection.main;
+      if (sel.empty) return null;
+      const text = view.state.sliceDoc(sel.from, sel.to);
+      if (!text.trim()) return null;
+      const c1 = view.coordsAtPos(sel.from);
+      const c2 = view.coordsAtPos(sel.to);
+      if (!c1 || !c2) return null;
+      return {
+        from: sel.from,
+        to: sel.to,
+        text,
+        rect: {
+          left: Math.min(c1.left, c2.left),
+          right: Math.max(c1.right, c2.right),
+          top: Math.min(c1.top, c2.top),
+          bottom: Math.max(c1.bottom, c2.bottom),
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function wireCherrySelectionAi() {
+    const dom = document.querySelector('#vditor-wrap .cm-editor');
+    if (!dom || dom._aiWired) return;
+    dom._aiWired = true;
+    // 右键按下时快照选区（捕获阶段：先于编辑器的 mousedown 处理）
+    dom.addEventListener('mousedown', (e) => {
+      if (e.button === 2) window._aiSel = captureSelInfo();
+    }, true);
+    dom.addEventListener('contextmenu', (e) => {
+      const info = captureSelInfo() || window._aiSel;
+      window._aiSel = null;
+      hideCtxMenu();
+      if (!info) return; // 无选区：保留浏览器默认菜单
+      e.preventDefault();
+      window._aiSel = info;
+      showCtxMenu(e.clientX, e.clientY, [
+        { action: 'ai-explain', label: '✨ AI 解释与扩展' },
+        { action: 'ai-rewrite', label: '✨ AI 改写润色' },
+      ]);
+    });
+  }
+
+  // ---------- AI 选区助手弹层 ----------
+  const assist = { action: '', text: '', from: 0, to: 0, rect: null, markdown: '', wired: false, reqId: 0 };
+
+  function positionAssistPop() {
+    const pop = $('#ai-assist-pop');
+    if (!pop || pop.classList.contains('hidden') || !assist.rect || !assist.text) return;
+    const rect = assist.rect;
+    const w = pop.offsetWidth || 452;
+    const h = pop.offsetHeight || 200;
+    const maxH = window.innerHeight - 20;
+    let x = Math.min(rect.left, window.innerWidth - w - 10);
+    let y;
+    if (rect.bottom + 10 + h <= window.innerHeight - 10) {
+      y = rect.bottom + 10; // 首选：选区下方
+    } else if (rect.top - h - 10 >= 10) {
+      y = rect.top - h - 10; // 次选：选区上方
+    } else {
+      y = window.innerHeight - Math.min(h, maxH) - 10; // 上下都放不下：贴视口底
+    }
+    pop.style.left = Math.max(10, x) + 'px';
+    pop.style.top = Math.max(10, y) + 'px';
+  }
+
+  function hideAssistPop() {
+    const pop = $('#ai-assist-pop');
+    if (pop) pop.classList.add('hidden');
+    assist.reqId++; // 使进行中的请求失效
+  }
+
+  function bindAssistPop() {
+    if (assist.wired) return;
+    assist.wired = true;
+    const pop = $('#ai-assist-pop');
+    $('#aap-close').addEventListener('click', hideAssistPop);
+    pop.querySelectorAll('.aap-btn').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const act = btn.dataset.aap;
+        if (act === 'regen') {
+          runAssist(assist.action);
+          return;
+        }
+        if (act === 'copy') {
+          try {
+            await navigator.clipboard.writeText(assist.markdown);
+            toast('已复制结果');
+          } catch (e) {
+            toast('复制失败: ' + e.message, true);
+          }
+          return;
+        }
+        if (!assist.markdown) return;
+        const view = cherryCmView();
+        if (!view) { toast('编辑器未就绪', true); return; }
+        // 选区防漂移：确认原文未变
+        let cur = '';
+        try { cur = view.state.sliceDoc(assist.from, assist.to); } catch (e) { /* ignore */ }
+        if (cur !== assist.text) {
+          toast('选区内容已变化，请重新选择', true);
+          hideAssistPop();
+          return;
+        }
+        if (act === 'replace') {
+          view.dispatch({ changes: { from: assist.from, to: assist.to, insert: assist.markdown } });
+          toast('已用 AI 结果替换选中内容');
+        } else if (act === 'insert') {
+          view.dispatch({ changes: { from: assist.to, to: assist.to, insert: '\n\n' + assist.markdown } });
+          toast('已插入到选区下方');
+        }
+        hideAssistPop();
+      })
+    );
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hideAssistPop();
+    });
+    window.addEventListener('scroll', positionAssistPop, true);
+    window.addEventListener('resize', positionAssistPop);
+    // 编辑器关闭时自动收起弹出层与菜单
+    const edEl = $('#editor');
+    if (edEl && !edEl._aiObs) {
+      edEl._aiObs = true;
+      new MutationObserver(() => {
+        if (edEl.classList.contains('hidden')) {
+          hideAssistPop();
+          hideCtxMenu();
+        }
+      }).observe(edEl, { attributes: true, attributeFilter: ['class'] });
+    }
+  }
+
+  async function runAssist(action) {
+    const sel = window._aiSel;
+    if (!sel) {
+      toast('请先选择内容', true);
+      return;
+    }
+    assist.action = action;
+    assist.text = sel.text;
+    assist.from = sel.from;
+    assist.to = sel.to;
+    assist.rect = sel.rect;
+    assist.markdown = '';
+    bindAssistPop();
+    const pop = $('#ai-assist-pop');
+    const bodyEl = $('#aap-body');
+    $('#aap-title').textContent = action === 'rewrite' ? '✨ AI 改写润色' : '✨ AI 解释与扩展';
+    $('#aap-status').textContent = '';
+    bodyEl.classList.add('aap-loading');
+    bodyEl.innerHTML = '<div class="aap-placeholder">正在生成，请稍候…</div>';
+    pop.classList.remove('hidden');
+    positionAssistPop();
+    const reqId = ++assist.reqId;
+    try {
+      const d = await api('/api/ai/assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, text: assist.text, title: $('#edit-title').value || '' }),
+      });
+      if (reqId !== assist.reqId) return; // 已关闭或重新发起
+      assist.markdown = String(d.content || '');
+      const html = window.renderMarkdown ? renderMarkdown(assist.markdown) : '<p>' + esc(assist.markdown) + '</p>';
+      bodyEl.classList.remove('aap-loading');
+      bodyEl.innerHTML = html;
+      $('#aap-status').textContent = '完成 · ' + assist.markdown.length + ' 字';
+      positionAssistPop();
+    } catch (e) {
+      if (reqId !== assist.reqId) return;
+      bodyEl.classList.remove('aap-loading');
+      bodyEl.innerHTML = '<div class="aap-placeholder error">' + esc(e.message) + '</div>';
+      $('#aap-status').textContent = '失败';
+    }
+  }
+
+  ctxActions['ai-explain'] = () => runAssist('explain');
+  ctxActions['ai-rewrite'] = () => runAssist('rewrite');
+
 
   function switchEditorMode(mode) {
     editorMode = mode;
@@ -2626,6 +2086,10 @@
         vditor.setValue('# 新笔记\n\n');
         $('#edit-title').focus();
       }
+    }).catch((e) => {
+      toast('编辑器加载失败: ' + e.message + '（可点「📝 源码」用源码模式编辑）', true);
+      const loading = document.getElementById('editor-loading');
+      if (loading) loading.innerHTML = '<div class="editor-loading-text">编辑器加载失败，可点上方「📝 源码」按钮用源码模式编辑</div>';
     });
   }
 
@@ -2745,6 +2209,8 @@
     ensureVditor().then(() => {
       vditor.setValue('# 新笔记\n\n');
       $('#edit-title').focus();
+    }).catch((e) => {
+      toast('编辑器加载失败: ' + e.message + '（可点「📝 源码」用源码模式编辑）', true);
     });
   }
 
@@ -3972,18 +3438,14 @@
           }
           if (!res.ok) throw new Error(data.error || '上传失败');
           const isImage = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i);
-          if (isImage && editorMode !== 'source' && vditor && vditor._editor && typeof vditor._editor.chain === 'function') {
-            vditor._editor.chain().focus().setImage({ src: data.url, alt: data.filename || '' }).run();
-          } else {
-            const md = isImage ? `![](${data.url})` : `[${data.filename}](${data.url})`;
-            if (editorMode === 'source') {
-              const ta = $('#md-source');
-              const start = ta.selectionStart;
-              ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
-              ta.focus();
-            } else if (vditor) {
-              vditor.insertValue(md);
-            }
+          const md = isImage ? `![](${data.url})` : `[${data.filename}](${data.url})`;
+          if (editorMode === 'source') {
+            const ta = $('#md-source');
+            const start = ta.selectionStart;
+            ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
+            ta.focus();
+          } else if (vditor) {
+            vditor.insertValue(md);
           }
           toast('已上传: ' + data.filename);
         } catch (err) {

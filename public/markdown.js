@@ -317,7 +317,13 @@
           } else {
             listHtml += '<li>';
           }
-          listHtml += inline(item.text);
+          // 任务列表：- [ ] / - [x] → 复选框（与编辑器 Cherry 渲染保持一致）
+          const taskM = !item.ordered && item.text.match(/^\[([ xX])\]\s+(.*)$/);
+          if (taskM) {
+            listHtml += '<input type="checkbox" disabled' + (taskM[1] !== ' ' ? ' checked' : '') + '> ' + inline(taskM[2]);
+          } else {
+            listHtml += inline(item.text);
+          }
         }
         while (stacks.length) {
           listHtml += '</li></' + stacks.pop().tag + '>';
