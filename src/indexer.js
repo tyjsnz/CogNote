@@ -55,12 +55,15 @@ function buildHeadings(body) {
 // v1.3: 提取笔记中的内部链接（指向其他 .md 文件的链接）
 function extractInternalLinks(body, currentRelPath) {
   const links = [];
-  // 匹配 [text](path.md) 和 [text](path)
-  const re = /\[([^\]]*)\]\(([^)]+\.md)\)/gi;
+  // 匹配 [text](path.md)、[text](path.md#锚点)、[text](<path.md>)、URL 编码路径
+  const re = /\[[^\]]*\]\(\s*<?([^)>\s]+?\.md)(?:#[^)]*)?>?\s*\)/gi;
   let m;
   while ((m = re.exec(body)) !== null) {
-    const target = m[2];
-    // 解析相对路径
+    let target = m[1];
+    try { target = decodeURIComponent(target); } catch { /* 保留原样 */ }
+    target = target.trim();
+    if (!target || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue; // http(s): / data: 等外链
+    // 解析相对路径（currentRelPath 已是索引 key，多目录模式下自带目录前缀）
     const currentDir = currentRelPath.includes('/') ? currentRelPath.replace(/\/[^/]*$/, '') : '';
     const resolved = currentDir ? currentDir + '/' + target : target;
     // 规范化路径（处理 ../）
@@ -559,11 +562,9 @@ class Indexer {
         nodeSet.add(relPath);
         nodes.push({ id: relPath, title: doc.title, tags: doc.tags });
       }
-      // 链接是相对笔记自身目录解析的，多目录模式下需补回目录名前缀
-      const i = relPath.indexOf('/');
-      const prefix = this.prefixActive && i > 0 ? relPath.slice(0, i + 1) : '';
-      for (const rawTarget of (doc.links || [])) {
-        const target = prefix + rawTarget;
+      // doc.links 在解析时已按索引 key（含多目录前缀）解析为完整路径，直接使用即可；
+      // 早期实现会再补一次目录前缀，导致多目录模式下出现「云端同步/云端同步/…」的错误目标
+      for (const target of (doc.links || [])) {
         if (!nodeSet.has(target)) {
           nodeSet.add(target);
           const targetDoc = this.docs.get(target);
