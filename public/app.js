@@ -1305,7 +1305,7 @@
         const text = await r.text();
         $('#note-body').innerHTML = '<pre style="background:var(--code-bg);padding:16px;border-radius:8px;overflow-x:auto;line-height:1.6;font-size:14px;white-space:pre-wrap;word-break:break-word">' + esc(text) + '</pre>';
       } catch (e) {
-        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">' + esc(noteReadError(e)) + '</p>';
       }
       ui.view = { type: 'note', rel: treeRel };
       saveUI();
@@ -1346,7 +1346,7 @@
           '<pre class="code-content"><code class="hljs language-' + lang + '">' + codeContent + '</code></pre>' +
           '</div></div>';
       } catch (e) {
-        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+        $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">' + esc(noteReadError(e)) + '</p>';
       }
       ui.view = { type: 'note', rel: treeRel };
       saveUI();
@@ -1385,7 +1385,7 @@
       state.reviewMode = false;
       updateReviewEnrollButton(rel);
     } catch (e) {
-      $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">读取失败：' + esc(e.message) + '</p>';
+      $('#note-body').innerHTML = '<p class="empty" style="color:var(--danger)">' + esc(noteReadError(e)) + '</p>';
       ui.view = { type: 'note', rel: treeRel };
       saveUI();
     }
@@ -3253,6 +3253,14 @@
     $('#btn-update-apply').disabled = false;
   }
 
+  // 读取失败时的友好提示（悬空链接/已移动文件不再抛原始 ENOENT）
+  function noteReadError(e) {
+    const msg = String((e && e.message) || e || '');
+    return /ENOENT|文件不存在|no such file|not found/i.test(msg)
+      ? '笔记不存在（可能已被移动或删除）'
+      : '读取失败：' + msg;
+  }
+
   // v1.3: 双链图
   async function openLinkGraph() {
     const container = $('#link-graph-container');
@@ -3277,22 +3285,26 @@
       }
       // 找出被引用最多的笔记（核心节点）
       const sorted = [...data.nodes].sort((a, b) => (inDeg.get(b.id) || 0) - (inDeg.get(a.id) || 0));
+      const missing = new Set(data.nodes.filter((n) => n.missing).map((n) => n.id));
+      const byId = new Map(data.nodes.map((n) => [n.id, n]));
+      const nodeName = (id) => byId.get(id)?.title || id;
+      const nodeHtml = (id) => missing.has(id)
+        ? `<span style="color:var(--muted)" title="${esc(id)}">${esc(nodeName(id))}（不存在）</span>`
+        : `<a href="#" class="graph-link" data-rel="${esc(id)}">${esc(nodeName(id))}</a>`;
       let html = `<p style="margin-bottom:12px;"><b>${data.nodes.length}</b> 篇笔记，<b>${data.edges.length}</b> 条引用关系</p>`;
-      // 显示核心节点（被引用 >= 2 次）
-      const core = sorted.filter((n) => (inDeg.get(n.id) || 0) >= 2);
+      // 显示核心节点（被引用 >= 2 次，仅存在的笔记）
+      const core = sorted.filter((n) => !missing.has(n.id) && (inDeg.get(n.id) || 0) >= 2);
       if (core.length) {
         html += '<div style="margin-bottom:12px;"><b>核心笔记（被引用 ≥2 次）：</b><ul style="margin:4px 0;">';
         for (const n of core) {
-          html += `<li><a href="#" class="graph-link" data-rel="${esc(n.id)}">${esc(n.title)}</a> <span style="color:var(--muted)">（被引用 ${inDeg.get(n.id)} 次）</span></li>`;
+          html += `<li>${nodeHtml(n.id)} <span style="color:var(--muted)">（被引用 ${inDeg.get(n.id)} 次）</span></li>`;
         }
         html += '</ul></div>';
       }
       // 显示所有引用关系
       html += '<b>引用关系：</b><ul style="margin:4px 0;">';
       for (const e of data.edges) {
-        const srcTitle = data.nodes.find((n) => n.id === e.source)?.title || e.source;
-        const tgtTitle = data.nodes.find((n) => n.id === e.target)?.title || e.target;
-        html += `<li><a href="#" class="graph-link" data-rel="${esc(e.source)}">${esc(srcTitle)}</a> → <a href="#" class="graph-link" data-rel="${esc(e.target)}">${esc(tgtTitle)}</a></li>`;
+        html += `<li>${nodeHtml(e.source)} → ${nodeHtml(e.target)}</li>`;
       }
       html += '</ul>';
       container.innerHTML = html;

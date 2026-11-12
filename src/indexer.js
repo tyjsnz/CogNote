@@ -572,7 +572,7 @@ class Indexer {
         if (!nodeSet.has(target)) {
           nodeSet.add(target);
           const targetDoc = this.docs.get(target);
-          nodes.push({ id: target, title: targetDoc?.title || target, tags: targetDoc?.tags || [] });
+          nodes.push({ id: target, title: targetDoc?.title || target, tags: targetDoc?.tags || [], missing: !targetDoc });
         }
         edges.push({ source: relPath, target });
       }
