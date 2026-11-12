@@ -2,6 +2,25 @@
 
 ## 2026-11-12
 
+### 新增：draw.io 画图集成（工具栏画图直接插入文档）
+
+- 工具栏一级直出 **draw.io** 按钮（表格/图片/超链接之后）：点击弹出本地 draw.io
+  编辑器，画完点「确定」直接把图以 `![名称](data:image/png;base64,…){data-type=drawio
+  data-xml=…}` 插入文档；预览区点击图片可再次打开 draw.io 继续编辑
+- **自托管离线可用**：官方桥接页 `drawio_demo.html` + `drawio_lib`/`mxgraph` 静态资源
+  入库 `public/vendor/drawio/`（7.1 MB / 350 文件，零外网依赖），走 Cherry 自定义
+  postMessage 协议（ready? / ready / setData / getData / getData:success）
+- **修复（关键）**：Cherry 对大体积 base64 先替换为 `bigDataBegin…bigDataEnd` 占位符
+  再调 `urlProcessor`，此前会被误当相对路径改写成 `/api/file?rel=…`（drawio 图片、
+  工具栏图片均受益）
+- 查看模式 `markdown.js`、分享页 `share-viewer.html` 兼容 drawio 语法：剥离 `{…}`
+  属性块、`data:` 内联图直接渲染（分享页同时修正非 `http(s)://` 绝对图被误拼路径）
+- 服务端静态 MIME 补 `.txt`/`.xml`/`.eot`；桥接脚本对空图 `setData` 跳过导入
+  （消除 mxCodec allowlist 告警）；补 `mxgraph/css/common.css` 占位消除 404
+- **测试**：drawio 专项 23 项（按钮/弹层/iframe 初始化/画布插入/确定插入/预览/
+  重新编辑/保存落盘/查看模式渲染/无错误）+ 既有回归 72 项（cherry-e2e 30 +
+  toolbar-shot 12 + final-regress 30）**全绿共 95 项**
+
 ### 发布：v1.0.1（编辑器迁移发行包 + 官网部署）
 
 - 版本 1.0.0 → **1.0.1**，重建 4 平台应用包 + Sync 服务端包 + AppUpdate 包 +

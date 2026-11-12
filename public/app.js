@@ -1742,7 +1742,10 @@
 
   // 图片相对路径 → /api/file（Cherry 渲染图片 URL 都会过这里，编辑器与预览一致）
   function cherryUrlProcessor(url, srcType) {
-    if (srcType !== 'image' || !url || /^(https?:|data:|blob:|\/|#)/.test(url)) return url;
+    // Cherry 对大体积 base64（drawio 图片等）先替换为 bigDataBegin…bigDataEnd 占位符，
+    // 占位符不是真实路径，必须原样返回（否则会被误拼成 /api/file?rel=…）
+    if (!url || /bigDataBegin|bigDataEnd/.test(String(url))) return url;
+    if (srcType !== 'image' || /^(https?:|data:|blob:|\/|#)/.test(url)) return url;
     const rel2 = resolveRelImgSrc(url, state.currentRel);
     if (!rel2) return url;
     return '/api/file?rel=' + encodeURIComponent(rel2) +
@@ -1801,12 +1804,14 @@
           toolbars: {
             toolbar: ['bold', 'italic', 'strikethrough', '|', 'color', 'header', '|',
               'list', 'checklist', '|',
-              'table', 'image', 'link', 'formula', 'code', 'hr', 'toc', '|',
+              'table', 'image', 'link', 'drawIo', 'formula', 'code', 'hr', 'toc', '|',
               'search', 'togglePreview'],
             bubble: ['bold', 'italic', 'underline', 'strikethrough', 'sub', 'sup', 'quote', '|', 'size', 'color'],
             float: ['h1', 'h2', 'h3', '|', 'checklist', 'quote', 'table', 'code'],
           },
           fileUpload: cherryFileUpload,
+          drawioIframeUrl: 'vendor/drawio/drawio_demo.html',
+          drawioIframeStyle: 'border: none; width: 100%; height: 100%;',
           event: {
             afterInit() { wireCherrySelectionAi(); },
           },

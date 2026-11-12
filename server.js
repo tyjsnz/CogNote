@@ -439,6 +439,9 @@ const MIME = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.otf': 'font/otf',
+  '.eot': 'application/vnd.ms-fontobject',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
   '.map': 'application/json',
 };
 
