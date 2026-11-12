@@ -1,6 +1,6 @@
 {
   "name": "cognote",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cognote — 私有化智能笔记与知识图谱",
   "main": "server.js",
   "bin": "server.js",
@@ -21,9 +21,15 @@
     "url": "https://github.com/tyjsnz/CogNote/issues"
   },
   "pkg": {
-    "scripts": ["src/**/*.js"],
-    "assets": ["public/**/*"],
-    "targets": ["node22-win-x64"]
+    "scripts": [
+      "src/**/*.js"
+    ],
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node22-win-x64"
+    ]
   },
   "license": "MIT"
 }

@@ -2,6 +2,20 @@
 
 ## 2026-11-12
 
+### 发布：v1.0.1（编辑器迁移发行包 + 官网部署）
+
+- 版本 1.0.0 → **1.0.1**，重建 4 平台应用包 + Sync 服务端包 + AppUpdate 包 +
+  `latest.json`（`notes` 自动摘取上方「编辑器迁移」小节 1020 字）
+- `site/index.html` 5 处更新：文件名 v1.0.0→v1.0.1、体积（windows 37.6→35.1 MB /
+  arm64 41.3→38.8 / x64 42.4→39.9 / linux 47.9→45.4，Cherry 精简 vendor 生效）、
+  哈希前缀（windows d2524c3d / arm64 8f8757b0 / x64 b8058979 / linux f3b693a5 /
+  sync 066a0667）
+- 部署 `rsync site/ → /www/wwwroot/cognote`，线上实测：页面前缀 = 服务器
+  `sha256sum` = `latest.json` 记录**三方一致**；6 包 + latest.json + SHA256SUMS
+  HEAD 200、Range 206；**AppUpdate 包全量下载后本机 sha256 `a0387511…` 与服务器
+  完全一致**；真机 Chrome 打开首页无 4xx、无 JS 错误
+- 当前线上版本 **v1.0.1**（后续发版只需跑 `build-packages.sh` 并 rsync）
+
 ### 变更：编辑器从 TipTap 迁移至 Cherry Markdown（解决表格/粘贴/交互痛点）
 
 - **选型背景**：原 TipTap 分页编辑器在表格操作、工具栏快捷键、粘贴图片、
