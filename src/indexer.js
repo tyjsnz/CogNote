@@ -34,6 +34,15 @@ function extractTitle(body, relPath) {
   return base;
 }
 
+// 内联 base64（drawio 导图 / 粘贴图片）会污染索引词元、搜索摘要与 AI 上下文：
+// 索引时把 data: 图片替换为占位文本（原始 content 保持不变）
+function stripInlineBase64(text) {
+  if (!text || text.indexOf('data:') === -1) return text;
+  return text
+    .replace(/!\[([^\]]*)\]\(data:[^)]*\)(?:\{[^}]*\})?/g, '![$1](内联图片)')
+    .replace(/data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, '内联数据');
+}
+
 function buildHeadings(body) {
   const headings = [];
   for (const line of body.split(/\r?\n/)) {
@@ -248,6 +257,7 @@ class Indexer {
     } else {
       title = path.basename(relPath).replace(/\.[^.]+$/, '');
     }
+    body = stripInlineBase64(body);
     return {
       relPath,
       absPath,
