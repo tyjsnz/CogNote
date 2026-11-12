@@ -21,7 +21,7 @@
 
   // ---------- 界面状态持久化（折叠/当前笔记/目录开关）----------
   function loadUI() {
-    const base = { expanded: new Set(), view: null, coverOn: true, aiCollapsed: true };
+    const base = { expanded: new Set(), view: null, coverOn: true, aiCollapsed: true, sidebarCollapsed: false };
     try {
       const raw = localStorage.getItem('kb.ui');
       if (raw) {
@@ -31,6 +31,7 @@
           view: o.view || null,
           coverOn: o.coverOn !== false,
           aiCollapsed: o.aiCollapsed !== false,
+          sidebarCollapsed: !!o.sidebarCollapsed,
         };
       }
     } catch (e) { /* ignore */ }
@@ -46,6 +47,7 @@
         view: ui.view,
         coverOn: ui.coverOn,
         aiCollapsed: ui.aiCollapsed,
+        sidebarCollapsed: !!ui.sidebarCollapsed,
       }));
     } catch (e) { /* ignore */ }
   }
@@ -3310,6 +3312,20 @@
     }
   }
 
+  // ---------- 侧栏折叠 ----------
+  function applySidebarState() {
+    const layout = $('#layout');
+    if (layout) layout.classList.toggle('sidebar-collapsed', !!ui.sidebarCollapsed);
+    const btn = $('#btn-toggle-sidebar');
+    if (btn) btn.title = ui.sidebarCollapsed ? '展开笔记目录' : '收起笔记目录';
+  }
+
+  function toggleSidebar() {
+    ui.sidebarCollapsed = !ui.sidebarCollapsed;
+    saveUI();
+    applySidebarState();
+  }
+
   // ---------- AI panel toggle ----------
   function applyAiPanelState() {
     const panel = $('#ai-panel');
@@ -3508,6 +3524,7 @@
     });
     // v1.3: 双链图
     $('#btn-show-links').addEventListener('click', openLinkGraph);
+    $('#btn-toggle-sidebar').addEventListener('click', toggleSidebar);
     $('#btn-links-close').addEventListener('click', () => $('#dialog-links').classList.add('hidden'));
 
     // 复习评分面板
@@ -3556,6 +3573,7 @@
     bindContextMenu();
     applyCover();
     applyAiPanelState();
+    applySidebarState();
     await fetchConfig();
     checkUpdate().catch(() => {}); // 启动时静默检查更新（不阻塞初始化）
     try {

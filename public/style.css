@@ -16,7 +16,9 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
     "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, "Fira Code", "Courier New", monospace;
-  --measure: 760px;
+
+  /* 正文/编辑器宽度：随窗口自适应（2K/4K 下充分利用空间，小屏自动收窄） */
+  --measure: min(1800px, 92%);
 
   /* 圆角三档 + 胶囊 */
   --r-s: 8px;
@@ -193,8 +195,6 @@
   --toast-bg: #24292e;
   --toast-fg: #ffffff;
 
-  /* Typora 文档宽度（#write 默认 ~860px） */
-  --measure: 860px;
 }
 
 html, body { height: 100%; }
@@ -318,6 +318,7 @@ select:focus-visible {
 #sidebar {
   width: 300px;
   min-width: 300px;
+  flex-shrink: 0;
   background: var(--panel-glass);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -327,8 +328,28 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: background-color var(--dur) var(--ease);
+  transition: background-color var(--dur) var(--ease), width var(--dur) var(--ease),
+    min-width var(--dur) var(--ease), padding var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
+/* 侧栏收起：宽度归零，正文区自动占满 */
+#layout.sidebar-collapsed #sidebar {
+  width: 0;
+  min-width: 0;
+  padding: 12px 0;
+  border-right: none;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* 顶栏左侧的目录收起/展开按钮 */
+#btn-toggle-sidebar {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 7px 10px;
+  flex-shrink: 0;
+}
+#btn-toggle-sidebar:hover { background: var(--code-bg); color: var(--text); }
 .panel-title {
   font-weight: 600;
   font-size: 12px;
@@ -757,7 +778,7 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 }
 
 /* Editor */
-#editor { max-width: 960px; margin: 0 auto; }
+#editor { width: 100%; max-width: min(1800px, 100%); margin: 0 auto; }
 .editor-toolbar {
   display: flex;
   justify-content: space-between;

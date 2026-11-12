@@ -382,7 +382,7 @@ class Indexer {
   // v1.1: 保存索引到磁盘
   save(indexPath) {
     const data = {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       // 索引的根目录集合：与当前配置不一致时调用方应放弃缓存并全量重建
       scope: this.scope,
@@ -486,6 +486,8 @@ class Indexer {
       const raw = fs.readFileSync(indexPath, 'utf8');
       const data = JSON.parse(raw);
       if (!data.docs || !data.index) return { ok: false, error: '索引格式无效' };
+      // 缓存版本过低（v1 的 links 含 URL 编码/旧前缀语义）→ 放弃缓存并全量重建
+      if (!data.version || data.version < 2) return { ok: false, error: '索引缓存版本过旧' };
       this.docs.clear();
       this.index.clear();
       for (const [relPath, d] of Object.entries(data.docs)) {
@@ -564,7 +566,9 @@ class Indexer {
       }
       // doc.links 在解析时已按索引 key（含多目录前缀）解析为完整路径，直接使用即可；
       // 早期实现会再补一次目录前缀，导致多目录模式下出现「云端同步/云端同步/…」的错误目标
-      for (const target of (doc.links || [])) {
+      for (const rawTarget of (doc.links || [])) {
+        let target = String(rawTarget);
+        try { target = decodeURIComponent(target); } catch { /* 保留原样 */ }
         if (!nodeSet.has(target)) {
           nodeSet.add(target);
           const targetDoc = this.docs.get(target);
