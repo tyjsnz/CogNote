@@ -21,6 +21,20 @@
   重新编辑/保存落盘/查看模式渲染/无错误）+ 既有回归 72 项（cherry-e2e 30 +
   toolbar-shot 12 + final-regress 30）**全绿共 95 项**
 
+### 发布：v1.0.2（draw.io 画图发行包 + 官网部署）
+
+- 版本 1.0.1 → **1.0.2**，重建 4 平台应用包 + Sync 服务端包 + AppUpdate 包 +
+  `latest.json`（`notes` 自动摘取上方 draw.io 小节 913 字）
+- `site/index.html` 5 处更新：文件名 v1.0.1→v1.0.2、体积（windows 35.1→36.8 MB /
+  arm64 38.8→40.5 / x64 39.9→41.6 / linux 45.4→47.1，drawio 资源 +7.1 MB 所致）、
+  哈希前缀（windows c29b95af / arm64 efad4b40 / x64 8f520331 / linux d2de8f14 /
+  sync 85e66cfa）；AppUpdate 包 5.2 MB
+- 部署 `rsync site/ → /www/wwwroot/cognote`，线上实测：页面前缀 = 服务器
+  `sha256sum` = `latest.json` 记录**三方一致**；6 包 + latest.json + SHA256SUMS
+  HEAD 200、Range 206；**AppUpdate 包全量下载后本机 sha256 `764f899e…` 与服务器
+  完全一致**；真机 Chrome 打开首页无 4xx、无 JS 错误
+- 当前线上版本 **v1.0.2**
+
 ### 发布：v1.0.1（编辑器迁移发行包 + 官网部署）
 
 - 版本 1.0.0 → **1.0.1**，重建 4 平台应用包 + Sync 服务端包 + AppUpdate 包 +
