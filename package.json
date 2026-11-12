@@ -1,6 +1,6 @@
 {
   "name": "cognote",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Cognote — 私有化智能笔记与知识图谱",
   "main": "server.js",
   "bin": "server.js",

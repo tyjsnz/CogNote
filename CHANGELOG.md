@@ -30,6 +30,22 @@
   提升阅读/编辑可视面积
 - 折叠状态持久化到 localStorage，刷新后保持
 
+### 发布：v1.0.3（双链修复 + 自适应布局 + 侧栏折叠发行包）
+
+- 版本 1.0.2 → **1.0.3**，重建 4 平台应用包 + Sync 服务端包 + AppUpdate 包 +
+  `latest.json`（`notes` 自动摘取本节前述修复/优化/新增 581 字）
+- `site/index.html` 5 处更新：文件名 v1.0.2→v1.0.3、哈希前缀（windows 8554560d /
+  arm64 29fd9aa4 / x64 e77460cd / linux aee42994 / sync 97aaea63）
+- 部署 `rsync site/ → /www/wwwroot/cognote`，线上实测：页面前缀 = 服务器
+  `sha256sum` = `latest.json` 记录**三方一致**；6 包 + latest.json + SHA256SUMS
+  HEAD 200、Range 206；**AppUpdate 包全量下载 sha256 `5e9b118e…` 与服务器一致**，
+  包内含 server.js / src/indexer.js / public（index/app/style）等变更文件；真机
+  Chrome 打开首页无 4xx、无 JS 错误
+- 便携包客户端（`installSource=portable`）启动检查 `/api/update/check` 即可发现
+  1.0.3 → 下载 AppUpdate → SHA256 校验 → 覆盖应用文件并自动重启（git 源码安装
+  按设计提示 `git pull`）
+- 当前线上版本 **v1.0.3**
+
 ## 2026-11-12
 
 ### 变更：移除编辑器「📝 源码」模式按钮
