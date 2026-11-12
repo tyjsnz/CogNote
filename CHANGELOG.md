@@ -2,6 +2,15 @@
 
 ## 2026-11-12
 
+### 变更：移除编辑器「📝 源码」模式按钮
+
+- 编辑笔记右上角的「源码/预览」切换按钮移除：Cherry 本身就是 Markdown 源码 +
+  实时预览分栏，独立源码模式已无必要，减少一处模式歧义
+- 同步清理：`#md-source` textarea、`editorMode` 状态、`switchEditorMode()`、
+  文件上传的 source 分支及对应 CSS；保存/上传/AI 选区助手链路不变
+- **测试**：cherry-e2e 27（新增「源码按钮/textarea 已移除」断言）+ drawio 23 +
+  final-regress 30 + toolbar-shot 12 = **92 项全绿**
+
 ### 新增：draw.io 画图集成（工具栏画图直接插入文档）
 
 - 工具栏一级直出 **draw.io** 按钮（表格/图片/超链接之后）：点击弹出本地 draw.io

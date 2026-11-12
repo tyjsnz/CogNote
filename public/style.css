@@ -794,8 +794,6 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
   min-height: 460px;
   font-size: 15px;
 }
-/* 源码模式与可视化模式高度一致，切换不跳动 */
-#md-source { height: calc(100vh - 265px); }
 /* 标题锚点：Cherry 默认常显 §，改为 hover 显示（对标 Typora） */
 #vditor-wrap .cherry-markdown a.anchor::before { content: ''; }
 #vditor-wrap .cherry-markdown h1:hover a.anchor::before,
@@ -811,23 +809,6 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
 .editor-loading-text { font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Markdown 源码编辑器 */
-#md-source {
-  width: 100%;
-  min-height: 460px;
-  padding: 14px;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.6;
-  border: 1px solid var(--border);
-  border-radius: 0 0 var(--r-s) var(--r-s);
-  background: var(--panel);
-  color: var(--text);
-  resize: vertical;
-  box-sizing: border-box;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
-#md-source:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 
 /* AI panel（毛玻璃） */
 #ai-panel {

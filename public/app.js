@@ -1574,7 +1574,6 @@
 
   // ---------- editor ----------
   let vditor = null;
-  let editorMode = 'wysiwyg'; // 'wysiwyg' | 'source'
 
   let monacoEditor = null;
   let monacoReady = false;
@@ -2026,31 +2025,6 @@
   ctxActions['ai-rewrite'] = () => runAssist('rewrite');
 
 
-  function switchEditorMode(mode) {
-    editorMode = mode;
-    const vditorWrap = $('#vditor-wrap');
-    const mdSource = $('#md-source');
-    const btn = $('#btn-toggle-md');
-    if (mode === 'source') {
-      // 切换到源码模式：获取 vditor 内容放入 textarea
-      const content = vditor ? vditor.getValue() : '';
-      mdSource.value = content;
-      vditorWrap.classList.add('hidden');
-      mdSource.classList.remove('hidden');
-      btn.textContent = '👁 预览';
-      btn.title = '切换到可视化编辑模式';
-      mdSource.focus();
-    } else {
-      // 切换到可视化模式：获取 textarea 内容放入 vditor
-      const content = mdSource.value;
-      vditorWrap.classList.remove('hidden');
-      mdSource.classList.add('hidden');
-      if (vditor) vditor.setValue(content);
-      btn.textContent = '📝 源码';
-      btn.title = '切换到 Markdown 源码模式';
-    }
-  }
-
   function openEditor() {
     if (!state.currentRel && !state.currentDir) {
       toast('请先选择一篇笔记或分类', true);
@@ -2067,13 +2041,7 @@
     $('#editor').classList.remove('hidden');
     $('#code-editor-section').classList.add('hidden');
 
-    // 重置为可视化模式
-    editorMode = 'wysiwyg';
     $('#vditor-wrap').classList.remove('hidden');
-    $('#md-source').classList.add('hidden');
-    const btn = $('#btn-toggle-md');
-    btn.textContent = '📝 源码';
-    btn.title = '切换到 Markdown 源码模式';
 
     ensureVditor().then(() => {
       if (state.currentRel) {
@@ -2092,9 +2060,9 @@
         $('#edit-title').focus();
       }
     }).catch((e) => {
-      toast('编辑器加载失败: ' + e.message + '（可点「📝 源码」用源码模式编辑）', true);
+      toast('编辑器加载失败: ' + e.message, true);
       const loading = document.getElementById('editor-loading');
-      if (loading) loading.innerHTML = '<div class="editor-loading-text">编辑器加载失败，可点上方「📝 源码」按钮用源码模式编辑</div>';
+      if (loading) loading.innerHTML = '<div class="editor-loading-text">编辑器加载失败</div>';
     });
   }
 
@@ -2122,7 +2090,7 @@
   async function saveNote() {
     const title = $('#edit-title').value.trim();
     const tags = $('#edit-tags').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-    let body = editorMode === 'source' ? $('#md-source').value : (vditor ? vditor.getValue() : '');
+    let body = vditor ? vditor.getValue() : '';
 
     let oldContent = '';
     let newRel;
@@ -2146,7 +2114,7 @@
 
     // 代码文件直接保存，不处理 frontmatter
     if (state.currentRel && isCodeFile(state.currentRel)) {
-      const body = editorMode === 'source' ? $('#md-source').value : (vditor ? vditor.getValue() : '');
+      const body = vditor ? vditor.getValue() : '';
       await api('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2215,7 +2183,7 @@
       vditor.setValue('# 新笔记\n\n');
       $('#edit-title').focus();
     }).catch((e) => {
-      toast('编辑器加载失败: ' + e.message + '（可点「📝 源码」用源码模式编辑）', true);
+      toast('编辑器加载失败: ' + e.message, true);
     });
   }
 
@@ -3422,7 +3390,6 @@
 
     $('#btn-save').addEventListener('click', saveNote);
     $('#btn-cancel-edit').addEventListener('click', cancelEdit);
-    $('#btn-toggle-md').addEventListener('click', () => switchEditorMode(editorMode === 'source' ? 'wysiwyg' : 'source'));
     $('#file-upload').addEventListener('change', async (e) => {
       const files = Array.from(e.target.files);
       if (!files.length) return;
@@ -3444,14 +3411,7 @@
           if (!res.ok) throw new Error(data.error || '上传失败');
           const isImage = data.url.match(/\.(png|jpe?g|gif|webp|svg)$/i);
           const md = isImage ? `![](${data.url})` : `[${data.filename}](${data.url})`;
-          if (editorMode === 'source') {
-            const ta = $('#md-source');
-            const start = ta.selectionStart;
-            ta.value = ta.value.slice(0, start) + md + ta.value.slice(start);
-            ta.focus();
-          } else if (vditor) {
-            vditor.insertValue(md);
-          }
+          if (vditor) vditor.insertValue(md);
           toast('已上传: ' + data.filename);
         } catch (err) {
           toast(err.message, true);
