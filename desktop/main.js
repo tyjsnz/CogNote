@@ -2,6 +2,7 @@
 // 职责：启动内置 Node 服务 → 原生窗口加载本地页面 → 原生菜单/单实例/窗口状态记忆
 // 现有 Web 端功能（笔记/搜索/双链/AI/同步/分享）完全复用，无需改动前端
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -94,6 +95,89 @@ function stopServer() {
   try { serverChild.kill(); } catch { /* ignore */ }
 }
 
+// ---------- 自动更新（electron-updater，generic 更新源） ----------
+const DOWNLOAD_PAGE = 'https://cognote.flacn.net/#download';
+let manualUpdateCheck = false;
+let updaterReady = false;
+
+function showUpdateError(err) {
+  const msg = String((err && err.message) || err || '未知错误');
+  const unsigned = /code signature|not signed|Could not get code signature/i.test(msg);
+  dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: '自动更新不可用',
+    message: unsigned ? '当前版本未签名，无法自动更新' : '检查更新失败',
+    detail: unsigned
+      ? 'macOS 自动更新要求应用签名。请到官网下载新版安装包手动覆盖安装。'
+      : msg + '\n\n你也可以到官网下载新版安装包。',
+    buttons: ['打开下载页', '关闭'],
+    defaultId: 0,
+    cancelId: 1,
+  }).then(({ response }) => { if (response === 0) shell.openExternal(DOWNLOAD_PAGE); });
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged || SMOKE || updaterReady) return;
+  updaterReady = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    if (SMOKE) return;
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '发现新版本',
+      message: `Cognote v${info.version} 已发布`,
+      detail: '是否现在下载更新？下载完成后重启应用即可完成安装。',
+      buttons: ['下载更新', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.downloadUpdate().catch(showUpdateError);
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox(mainWindow, {
+      type: 'info', title: '检查更新', message: `当前已是最新版本 v${app.getVersion()}`,
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    if (SMOKE) return;
+    if (manualUpdateCheck) { manualUpdateCheck = false; showUpdateError(err); }
+    else console.error('[update] ' + ((err && err.message) || err));
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '更新已就绪',
+      message: `Cognote v${info.version} 已下载完成`,
+      detail: '重启应用即可完成更新。',
+      buttons: ['立即重启', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) { quitting = true; autoUpdater.quitAndInstall(); }
+    });
+  });
+
+  // 启动后稍候静默检查一次
+  setTimeout(() => autoUpdater.checkForUpdates().catch(showUpdateError), 3000);
+}
+
+function checkForUpdatesManually() {
+  if (!app.isPackaged) {
+    dialog.showMessageBox(mainWindow, { type: 'info', title: '检查更新', message: '开发模式下不检查更新' });
+    return;
+  }
+  manualUpdateCheck = true;
+  autoUpdater.checkForUpdates().catch((err) => { manualUpdateCheck = false; showUpdateError(err); });
+}
+
 // ---------- 菜单（保证 Cmd/Ctrl+C/V 等原生编辑快捷键可用） ----------
 function buildMenu() {
   const isMac = process.platform === 'darwin';
@@ -102,6 +186,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about', label: '关于 Cognote' },
+        { label: '检查更新…', click: checkForUpdatesManually },
         { type: 'separator' },
         { role: 'hide', label: '隐藏 Cognote' },
         { role: 'hideOthers', label: '隐藏其他' },
@@ -134,6 +219,13 @@ function buildMenu() {
         { role: 'zoomOut', label: '缩小' },
         { type: 'separator' },
         { role: 'togglefullscreen', label: '全屏' },
+      ],
+    },
+    {
+      label: '帮助',
+      submenu: [
+        { label: '检查更新…', click: checkForUpdatesManually },
+        { label: '打开官网 / 下载页', click: () => shell.openExternal('https://cognote.flacn.net/') },
       ],
     },
     {
@@ -212,6 +304,7 @@ if (!gotLock) {
     try {
       const url = await startServer();
       await win.loadURL(url);
+      setupAutoUpdater();
       if (SMOKE) {
         const title = await win.webContents.executeJavaScript('document.title').catch(() => '');
         const hasApp = await win.webContents.executeJavaScript('!!document.querySelector("#topbar")').catch(() => false);

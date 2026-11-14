@@ -45,7 +45,9 @@ npm run desktop:pack:linux  # 打包 Linux（AppImage + zip，需在 Linux 或 C
 - 桌面版数据目录（配置/索引/窗口状态）：
   macOS `~/Library/Application Support/Cognote`、Windows `%APPDATA%\Cognote`、Linux `~/.config/Cognote`
 - 首次启动默认笔记目录 `~/Documents/Cognote`，可在「设置」中改为已有笔记目录
-- 桌面版暂不内置在线自动更新（后续接入 electron-updater）；Web/便携包仍保持原有在线更新
+- **自动更新**：桌面版已接入 electron-updater（更新源 `https://cognote.flacn.net/downloads/desktop/`）。
+  Windows 安装版 / Linux AppImage 开箱即用；macOS 自动更新需应用签名，未签名时会提示手动下载
+- 打包与发布（含 Windows/Linux 步骤、`latest*.yml` 上传要求）见 [`docs/desktop-build.md`](docs/desktop-build.md)
 
 ## 痛点与解决
 

@@ -84,7 +84,16 @@
       ],
       "category": "Office",
       "icon": "desktop/resources/icon.png"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://cognote.flacn.net/downloads/desktop/"
+      }
+    ]
   },
-  "author": "tyjsnz"
+  "author": "tyjsnz",
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
 }

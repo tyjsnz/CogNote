@@ -17,6 +17,11 @@
   linux AppImage+zip，`asar: false` 便于文件级更新）
 - 冒烟验证：Electron 启动 → 内置服务就绪 → 窗口加载首页（`#topbar` 存在、标题 Cognote）
   → 自动退出；桌面数据目录 `~/Library/Application Support/Cognote`
+- **自动更新**（electron-updater + generic 更新源 `.../downloads/desktop/`）：启动 3 秒后
+  静默检查 → 发现新版弹窗 → 下载 → 「更新已就绪」重启安装；菜单提供「检查更新…」；
+  macOS 未签名时降级为「打开官网下载页」提示（签名后即可自动更新）
+- **打包文档**：新增 [`docs/desktop-build.md`](docs/desktop-build.md)——Windows / Linux /
+  macOS 打包步骤、版本号规则、`latest*.yml` 与安装包上传要求、GitHub Actions 方案、常见问题
 
 ## 2026-11-13
 
