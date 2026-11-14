@@ -163,18 +163,29 @@
   <div class="wrap">
     <div class="sec-head">
       <h2>下载</h2>
-      <p>绿色便携版 · 解压即用 · 内置 Node.js 运行时，无需任何环境依赖</p>
+      <p>桌面安装版（Electron 原生窗口）· 绿色便携版 · 解压/安装即用</p>
     </div>
     <div class="dl-grid">
       <div class="dl-card featured">
         <div class="os">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.55 10.07 4.6v6.94H3V5.55zm0 12.9 7.07-.94V20.4H3v-1.95zM11.07 4.46 21 3v8.54H11.07V4.46zm0 15.94V12.4H21V21l-9.93-1.6z"/></svg>
+          Windows 桌面版
+        </div>
+        <div class="arch">x64 · Windows 10 / 11 · Electron 安装包</div>
+        <div class="file">Cognote-1.0.3-setup.exe</div>
+        <div class="meta"><span>120.9 MB</span><span>SHA256 359040c6…</span></div>
+        <a class="btn" href="downloads/Cognote-1.0.3-setup.exe" download>⬇ 下载桌面安装版</a>
+      </div>
+
+      <div class="dl-card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.55 10.07 4.6v6.94H3V5.55zm0 12.9 7.07-.94V20.4H3v-1.95zM11.07 4.46 21 3v8.54H11.07V4.46zm0 15.94V12.4H21V21l-9.93-1.6z"/></svg>
           Windows
         </div>
-        <div class="arch">x64 · Windows 10 / 11</div>
+        <div class="arch">x64 · Windows 10 / 11 · 绿色便携</div>
         <div class="file">Cognote-v1.0.3-windows-x64.zip</div>
         <div class="meta"><span>36.8 MB</span><span>SHA256 8554560d…</span></div>
-        <a class="btn" href="downloads/Cognote-v1.0.3-windows-x64.zip" download>⬇ 下载 Windows 版</a>
+        <a class="btn" href="downloads/Cognote-v1.0.3-windows-x64.zip" download>⬇ 下载便携版</a>
       </div>
 
       <div class="dl-card">
@@ -242,10 +253,13 @@
     <div class="callout info">
       <h3>下载后怎么用？</h3>
       <p>
-        ① 解压到任意可写目录（桌面 / 文档均可）；
+        <b>桌面安装版</b>：双击 <code>Cognote-1.0.3-setup.exe</code> 安装后从开始菜单启动，是独立原生窗口（无浏览器地址栏），支持自动更新；
+        首次启动默认笔记目录 <code>Documents\Cognote</code>，可在「设置」中修改。<br>
+        <b>绿色便携版</b>：① 解压到任意可写目录（桌面 / 文档均可）；
         ② Windows 双击 <code>启动 Cognote.bat</code>，macOS 双击 <code>启动 Cognote.command</code>，Linux 执行 <code>./start.sh</code>；
         ③ 浏览器打开 <code>http://127.0.0.1:8570</code>，在「设置」里填写你的笔记目录即可。
         包内自带 <code>使用说明.txt</code>。macOS 首次运行若提示无法打开，在终端执行 <code>xattr -cr .</code> 后重试。
+        Windows 安装包未签名，SmartScreen 提示时选择「更多信息 → 仍要运行」。
       </p>
     </div>
   </div>
