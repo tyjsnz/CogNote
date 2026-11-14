@@ -2,12 +2,18 @@
   "name": "cognote",
   "version": "1.0.3",
   "description": "Cognote — 私有化智能笔记与知识图谱",
-  "main": "server.js",
+  "main": "desktop/main.js",
   "bin": "server.js",
   "scripts": {
     "start": "node server.js",
     "rescan": "node scripts/rescan.js",
-    "build": "pkg . --out-path dist"
+    "build": "pkg . --out-path dist",
+    "start:web": "node server.js",
+    "desktop": "electron .",
+    "desktop:smoke": "electron . --smoke",
+    "desktop:pack:mac": "electron-builder --mac",
+    "desktop:pack:win": "electron-builder --win",
+    "desktop:pack:linux": "electron-builder --linux"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -31,5 +37,54 @@
       "node22-win-x64"
     ]
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "net.flacn.cognote",
+    "productName": "Cognote",
+    "asar": false,
+    "directories": {
+      "output": "dist/desktop",
+      "buildResources": "desktop/resources"
+    },
+    "files": [
+      "desktop/**/*",
+      "server.js",
+      "src/**/*",
+      "public/**/*",
+      "scripts/self-update.js",
+      "package.json",
+      "config.example.json",
+      "README.md",
+      "LICENSE"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "icon": "desktop/resources/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "desktop/resources/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "zip"
+      ],
+      "category": "Office",
+      "icon": "desktop/resources/icon.png"
+    }
+  },
+  "author": "tyjsnz"
 }

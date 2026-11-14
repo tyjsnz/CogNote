@@ -16,14 +16,16 @@ const { extractZip } = require('./src/zipextract');
 const ROOT = __dirname;
 
 // 打包为独立 exe 时(process.pkg)，可写数据放在 exe 旁的 data 目录；开发模式使用项目根 config.json
+// Electron 桌面模式（desktop/main.js 注入 COGNOTE_DESKTOP=1）：数据写 KB_DATA_DIR（应用用户目录），不弹浏览器
 const IS_PKG = !!process.pkg;
+const IS_DESKTOP = !!process.env.COGNOTE_DESKTOP;
 const EXE_DIR = IS_PKG ? path.dirname(process.execPath) : ROOT;
 const DATA_DIR = process.env.KB_DATA_DIR || path.join(EXE_DIR, 'data');
-const CONFIG_PATH = IS_PKG ? path.join(DATA_DIR, 'config.json') : path.join(ROOT, 'config.json');
+const CONFIG_PATH = (IS_PKG || IS_DESKTOP) ? path.join(DATA_DIR, 'config.json') : path.join(ROOT, 'config.json');
 // v1.1: 索引持久化路径
-const INDEX_PATH = IS_PKG ? path.join(DATA_DIR, 'index.json') : path.join(ROOT, '.index.json');
+const INDEX_PATH = (IS_PKG || IS_DESKTOP) ? path.join(DATA_DIR, 'index.json') : path.join(ROOT, '.index.json');
 // v1.4: 复习数据目录
-const REVIEW_DIR = IS_PKG ? DATA_DIR : ROOT;
+const REVIEW_DIR = (IS_PKG || IS_DESKTOP) ? DATA_DIR : ROOT;
 
 const DEFAULT_CONFIG = {
   notesDir: '',
@@ -55,7 +57,7 @@ const AI_PROVIDER_DEFAULTS = {
 };
 
 function ensureDataDir() {
-  if (IS_PKG) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (IS_PKG || IS_DESKTOP) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function loadConfig() {
@@ -77,7 +79,7 @@ function loadConfig() {
     cfg.multiDirIndex = !!cfg.multiDirIndex;
     return cfg;
   } catch (err) {
-    const base = IS_PKG ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+    const base = (IS_PKG || IS_DESKTOP) ? DEFAULT_CONFIG : JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
     const cfg = { ...base, deepseek: { ...DEFAULT_CONFIG.deepseek, ...(base.deepseek || {}) }, ai: { ...DEFAULT_CONFIG.ai, ...(base.ai || {}) }, index: { ...DEFAULT_CONFIG.index, ...(base.index || {}) }, cloud: { ...DEFAULT_CONFIG.cloud, ...(base.cloud || {}) } };
     if (!cfg.index.ignoreDirs.includes('_attachments')) cfg.index.ignoreDirs.push('_attachments');
     if (!cfg.index.ignoreDirs.includes(SYNC_STATE_DIR)) cfg.index.ignoreDirs.push(SYNC_STATE_DIR);
@@ -93,13 +95,23 @@ function loadConfig() {
 
 function initConfig() {
   // 打包模式首次运行：若 data/config.json 不存在，写入默认配置
-  if (IS_PKG) {
+  if (IS_PKG || IS_DESKTOP) {
     ensureDataDir();
     if (!fs.existsSync(CONFIG_PATH)) {
-      const base = DEFAULT_CONFIG;
-      let notesDir = '';
-      try { notesDir = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).notesDir || ''; } catch {}
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...base, notesDir }, null, 2), 'utf8');
+      const base = { ...DEFAULT_CONFIG };
+      if (IS_DESKTOP) {
+        // 桌面版：默认笔记目录 ~/Documents/Cognote（首次启动自动创建），云端目录放用户数据目录
+        const docs = path.join(os.homedir(), 'Documents', 'Cognote');
+        try { fs.mkdirSync(docs, { recursive: true }); } catch { /* 忽略 */ }
+        base.notesDir = docs;
+        base.notesDirs = [docs];
+        base.cloud = { ...DEFAULT_CONFIG.cloud, dir: path.join(DATA_DIR, '云端同步') };
+      } else {
+        let notesDir = '';
+        try { notesDir = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).notesDir || ''; } catch {}
+        base.notesDir = notesDir;
+      }
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2), 'utf8');
     }
   } else if (!fs.existsSync(CONFIG_PATH)) {
     ensureDataDir();
@@ -403,6 +415,8 @@ function isNewer(a, b) {
 // 安装形态：git 源码 / 便携包 / pkg 单文件
 function installSource() {
   if (IS_PKG) return 'pkg';
+  // Electron 桌面版：应用文件在 resources/app，Web 自更新无法重启桌面壳，走安装包更新
+  if (IS_DESKTOP) return 'desktop';
   try { if (fs.existsSync(path.join(ROOT, '.git'))) return 'git'; } catch { /* 忽略 */ }
   return 'portable';
 }
@@ -1326,6 +1340,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
   if (pathname === '/api/update/apply' && req.method === 'POST') {
     const source = installSource();
     if (source === 'pkg') throw new Error('单文件打包模式暂不支持在线更新，请到官网下载新版覆盖');
+    if (source === 'desktop') throw new Error('桌面版请从官网下载新版安装包更新（自动更新将在后续版本提供）');
     if (source === 'git') throw new Error('源码安装（git clone）请在仓库目录执行 git pull 更新');
     if (updateState.running) throw new Error('已有更新在进行中，请稍候');
     updateState.running = true;
@@ -1478,7 +1493,7 @@ function tryListen(port, attemptsLeft) {
     } else {
       console.log('[Cognote] 云端同步: 未启用');
     }
-    if (IS_PKG) {
+    if (IS_PKG && !IS_DESKTOP && !process.env.COGNOTE_NO_BROWSER) {
       console.log('[Cognote] 打包模式：正在打开浏览器...');
       openBrowser(url);
     }

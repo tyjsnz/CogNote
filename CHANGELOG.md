@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-11-14
+
+### 新增：Electron 桌面应用（独立窗口，不再依赖浏览器）
+
+- 新增 `desktop/main.js`：应用启动时以内置 Node 运行现有 `server.js`，解析启动地址后用
+  原生 `BrowserWindow` 加载；支持**单实例**、窗口尺寸/位置记忆、Dock/任务栏图标、
+  原生菜单（撤销/复制粘贴/缩放/全屏）、站外链接交给系统浏览器、macOS 关闭窗口后
+  可重新打开
+- `server.js` 增加桌面模式（`COGNOTE_DESKTOP=1` + `KB_DATA_DIR`）：配置/索引/复习数据
+  写入系统用户目录，**不自动打开浏览器**；首次启动默认笔记目录 `~/Documents/Cognote`
+- 桌面版禁用 Web 在线自更新（`installSource=desktop`），避免覆盖应用文件后无法重启
+  桌面壳；待接入 electron-updater（macOS 需签名）
+- 新增 1024×1024 应用图标 `desktop/resources/icon.png`；`package.json` 增加
+  `npm run desktop` 与 electron-builder 配置（mac dmg+zip / win nsis+zip /
+  linux AppImage+zip，`asar: false` 便于文件级更新）
+- 冒烟验证：Electron 启动 → 内置服务就绪 → 窗口加载首页（`#topbar` 存在、标题 Cognote）
+  → 自动退出；桌面数据目录 `~/Library/Application Support/Cognote`
+
 ## 2026-11-13
 
 ### 修复：双链图引用目标错误（多目录前缀重复 / 中文编码未解码）无法打开

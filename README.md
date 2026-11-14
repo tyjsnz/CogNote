@@ -14,11 +14,11 @@
 
 | 平台 | 文件 |
 |------|------|
-| Windows x64 | `Cognote-v1.0.0-windows-x64.zip` |
-| macOS（Apple 芯片） | `Cognote-v1.0.0-macos-arm64.zip` |
-| macOS（Intel） | `Cognote-v1.0.0-macos-x64.zip` |
-| Linux x64 | `Cognote-v1.0.0-linux-x64.zip` |
-| 云同步服务端（自建） | `Cognote-Sync-Server-v1.0.0.zip` |
+| Windows x64 | `Cognote-v1.0.3-windows-x64.zip` |
+| macOS（Apple 芯片） | `Cognote-v1.0.3-macos-arm64.zip` |
+| macOS（Intel） | `Cognote-v1.0.3-macos-x64.zip` |
+| Linux x64 | `Cognote-v1.0.3-linux-x64.zip` |
+| 云同步服务端（自建） | `Cognote-Sync-Server-v1.0.3.zip` |
 
 - 页面源码见 [`site/`](site/)（`index.html` 功能介绍与下载 + `deploy.html` 自建云同步部署教程）；
 - 源码仓库：<https://github.com/tyjsnz/CogNote>（MIT 协议，欢迎 Issue / PR）；
@@ -27,6 +27,25 @@
 > **云同步需自建服务**：Cognote 不提供官方云端。多设备同步需要你自行部署 `sync-server/`
 > （零依赖 Node.js，步骤见官网「自建云同步部署」页或 [`sync-server/README.md`](sync-server/README.md)），
 > 再在客户端「设置 → 云端同步」填写服务器地址与 Token。
+
+## 桌面应用（Electron，可选）
+
+除浏览器模式外，Cognote 也提供**独立桌面窗口**（Electron）：打开后是原生应用窗口（Dock/任务栏图标、
+原生菜单与快捷键），不再出现浏览器地址栏和标签页；现有笔记/搜索/双链/AI/同步/分享功能完全复用。
+
+```bash
+npm install                 # 安装依赖（首次）
+npm run desktop             # 开发模式启动桌面版
+npm run desktop:pack:mac    # 打包 macOS（dmg + zip）
+npm run desktop:pack:win    # 打包 Windows（nsis + zip，需在 Windows 或 CI 上执行）
+npm run desktop:pack:linux  # 打包 Linux（AppImage + zip，需在 Linux 或 CI 上执行）
+```
+
+- 产物在 `dist/desktop/`；macOS 本地打包为未签名版本（首次打开需右键 → 打开）
+- 桌面版数据目录（配置/索引/窗口状态）：
+  macOS `~/Library/Application Support/Cognote`、Windows `%APPDATA%\Cognote`、Linux `~/.config/Cognote`
+- 首次启动默认笔记目录 `~/Documents/Cognote`，可在「设置」中改为已有笔记目录
+- 桌面版暂不内置在线自动更新（后续接入 electron-updater）；Web/便携包仍保持原有在线更新
 
 ## 痛点与解决
 
