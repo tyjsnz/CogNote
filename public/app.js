@@ -138,6 +138,63 @@
     };
   }
 
+  // ---------- 通用输入框 / 确认框（Electron 不支持 window.prompt/confirm，自绘替代） ----------
+  // askInput：返回 Promise<string|null>（null = 取消），用法同 prompt(msg, default)
+  function askInput(msg, def) {
+    return new Promise((resolve) => {
+      const dlg = $('#dialog-prompt');
+      const input = $('#prompt-input');
+      $('#prompt-title').textContent = msg;
+      input.value = def == null ? '' : String(def);
+      let settled = false;
+      const close = (val) => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKey, true);
+        dlg.classList.add('hidden');
+        resolve(val);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(input.value); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
+      };
+      $('#btn-prompt-ok').onclick = () => close(input.value);
+      $('#btn-prompt-cancel').onclick = () => close(null);
+      // 点遮罩层取消
+      dlg.onclick = (e) => { if (e.target === dlg) close(null); };
+      document.addEventListener('keydown', onKey, true);
+      dlg.classList.remove('hidden');
+      setTimeout(() => { input.focus(); input.select(); }, 30);
+    });
+  }
+
+  // askConfirm：返回 Promise<boolean>，用法同 confirm(msg)
+  function askConfirm(msg, title) {
+    return new Promise((resolve) => {
+      const dlg = $('#dialog-confirm');
+      $('#confirm-title').textContent = title || '确认操作';
+      $('#confirm-msg').textContent = msg;
+      let settled = false;
+      const close = (val) => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKey, true);
+        dlg.classList.add('hidden');
+        resolve(val);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); }
+      };
+      $('#btn-confirm-ok').onclick = () => close(true);
+      $('#btn-confirm-cancel').onclick = () => close(false);
+      dlg.onclick = (e) => { if (e.target === dlg) close(false); };
+      document.addEventListener('keydown', onKey, true);
+      dlg.classList.remove('hidden');
+      setTimeout(() => $('#btn-confirm-ok').focus(), 30);
+    });
+  }
+
   async function api(url, opts) {
     const res = await fetch(url, opts);
     const data = await res.json().catch(() => ({}));
@@ -548,7 +605,7 @@
     const { rel: oldBase, dir: noteDir } = stripDirPrefix(oldRel);
     if (!oldBase) { toast('笔记根目录不可重命名（请在设置中修改）', true); return; }
     const oldName = oldBase.split('/').pop();
-    const name = prompt('重命名分类：', oldName);
+    const name = await askInput('重命名分类：', oldName);
     if (name === null) return;
     const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!clean) return;
@@ -810,7 +867,7 @@
     },
     async 'new-subfolder'() {
       const n = window._ctxNode || { type: 'root', rel: '' };
-      const name = prompt('输入新分类名称：', '新分类');
+      const name = await askInput('输入新分类名称：', '新分类');
       if (!name) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
@@ -826,7 +883,7 @@
       expandDir(n.rel);
     },
     async 'new-root'() {
-      const name = prompt('输入根分类名称：', '');
+      const name = await askInput('输入根分类名称：', '');
       if (!name) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
@@ -841,7 +898,7 @@
     async 'delete-folder'() {
       const n = window._ctxNode;
       if (!n || n.type !== 'dir') return;
-      if (!confirm('确定删除空分类？\n' + n.rel)) return;
+      if (!(await askConfirm('确定删除空分类？\n' + n.rel, '删除分类'))) return;
       try {
         const { rel, dir } = stripDirPrefix(n.rel);
         await api('/api/folder', {
@@ -874,7 +931,7 @@
       if (!n || n.type !== 'file') return;
       const { rel: nRel, dir } = stripDirPrefix(n.rel);
       const base = nRel.replace(/\.md$/i, '');
-      const name = prompt('输入子笔记名称：', '子笔记');
+      const name = await askInput('输入子笔记名称：', '子笔记');
       if (name === null) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
@@ -979,7 +1036,7 @@
       const oldName = oldRel.split('/').pop();
       const parentDir = oldRel.includes('/') ? oldRel.slice(0, oldRel.lastIndexOf('/')) : '';
       const base = oldName.replace(/\.md$/i, '');
-      const name = prompt('重命名文件：', base);
+      const name = await askInput('重命名文件：', base);
       if (name === null) return;
       const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
       if (!clean) return;
@@ -1014,7 +1071,7 @@
       const msg = subNum > 0
         ? '确定删除该笔记？\n' + n.rel + '\n\n其下还有 ' + subNum + ' 个子笔记，将连同其子笔记目录一并删除！'
         : '确定删除该笔记？\n' + n.rel;
-      if (!confirm(msg)) return;
+      if (!(await askConfirm(msg, '删除笔记'))) return;
       const { rel: delRel, dir: delDir } = stripDirPrefix(n.rel);
       await api('/api/note/delete', {
         method: 'POST',
@@ -2314,7 +2371,7 @@
       box.querySelectorAll('.share-toggle').forEach((b) =>
         b.addEventListener('click', async () => {
           const disabled = b.dataset.disabled === '1';
-          if (disabled && !confirm('停用后该链接将立即无法访问（数据和统计保留，可随时启用）。确定停用？')) return;
+          if (disabled && !(await askConfirm('停用后该链接将立即无法访问（数据和统计保留，可随时启用）。确定停用？', '停用分享'))) return;
           try {
             await api('/api/share/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id, disabled }) });
             toast(disabled ? '分享已停用' : '分享已启用');
@@ -2326,7 +2383,7 @@
       );
       box.querySelectorAll('.share-del').forEach((b) =>
         b.addEventListener('click', async () => {
-          if (!confirm('确定删除该分享？链接与统计数据将永久删除，无法恢复。')) return;
+          if (!(await askConfirm('确定删除该分享？链接与统计数据将永久删除，无法恢复。', '删除分享'))) return;
           try {
             await api('/api/share/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }) });
             toast('分享已删除');
@@ -2402,7 +2459,7 @@
 
   async function newMoveSubfolder() {
     const parent = window._moveTarget || state.currentDir || '';
-    const name = prompt('输入新分类名称：', '新分类');
+    const name = await askInput('输入新分类名称：', '新分类');
     if (!name) return;
     const clean = name.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!clean) return;
@@ -2471,7 +2528,7 @@
 
   async function deleteNote() {
     if (!state.currentRel) return;
-    if (!confirm('确定删除该笔记？\n' + state.currentRel)) return;
+    if (!(await askConfirm('确定删除该笔记？\n' + state.currentRel, '删除笔记'))) return;
     await api('/api/note/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3208,11 +3265,12 @@
   async function applyUpdate() {
     const d = updateInfo;
     if (!d || !d.updateAvailable) return;
-    const go = confirm(
+    const go = await askConfirm(
       `确认更新到 v${d.latest}？\n\n` +
       '· 下载应用更新包并校验 SHA256（几百 KB）\n' +
       '· 服务自动重启，页面随后自动刷新（约 10~40 秒）\n' +
-      '· 笔记 / 配置 / 索引数据不受影响；更新失败会自动回滚'
+      '· 笔记 / 配置 / 索引数据不受影响；更新失败会自动回滚',
+      '应用更新'
     );
     if (!go) return;
     $('#btn-update-apply').disabled = true;

@@ -370,6 +370,32 @@
     </div>
   </div>
 
+  <!-- 通用输入框（Electron 不支持 window.prompt，用自绘对话框统一） -->
+  <div id="dialog-prompt" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="prompt-title"></h3>
+      <label>名称
+        <input id="prompt-input" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="modal-foot">
+        <button id="btn-prompt-cancel" class="link-btn">取消</button>
+        <button id="btn-prompt-ok" class="primary-btn">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用确认框（Electron 的 confirm 不弹窗直接返回 true，同样自绘） -->
+  <div id="dialog-confirm" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="confirm-title">确认操作</h3>
+      <p id="confirm-msg" style="white-space:pre-line;font-size:14px;line-height:1.7;margin:8px 0 4px;"></p>
+      <div class="modal-foot">
+        <button id="btn-confirm-cancel" class="link-btn">取消</button>
+        <button id="btn-confirm-ok" class="primary-btn">确定</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 选区 AI 助手（验证）：右键选区 → 透明弹出层 → 替换/插入 -->
   <div id="ai-assist-pop" class="ai-assist-pop hidden">
     <div class="aap-head">

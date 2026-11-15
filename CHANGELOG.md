@@ -2,6 +2,19 @@
 
 ## 2026-11-14
 
+### 修复：右键「新建子分类」等输入/确认框在桌面版不弹出
+
+- **根因**：Electron 不支持 `window.prompt`（直接抛 `prompt() is not supported.`），
+  且原生 `confirm` 在 Electron 下不弹窗、静默返回 `true`——导致新建/重命名分类、
+  新建子笔记、删除确认（笔记/分类/分享）、更新确认等 12 处交互在桌面版全部失效或误放行
+- **修复**：新增自绘通用对话框 `#dialog-prompt`（输入）与 `#dialog-confirm`（确认），
+  `askInput()` / `askConfirm()` Promise 化替换全部 12 处原生调用；支持回车确认、
+  Esc/点遮罩取消；Web 端与桌面版表现一致
+- 验证：浏览器端回归 30 + cherry 27 + toolbar 12 + ui-fixes 11 全绿；
+  Electron 实测右键新建子分类弹窗输入→创建成功、删除确认弹窗→取消不删/确定才删
+
+## 2026-11-14
+
 ### 新增：Electron 桌面应用（独立窗口，不再依赖浏览器）
 
 - 新增 `desktop/main.js`：应用启动时以内置 Node 运行现有 `server.js`，解析启动地址后用
