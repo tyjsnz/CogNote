@@ -14,6 +14,9 @@
   Esc/点遮罩取消；Web 端与桌面版表现一致
 - 验证：浏览器端回归 30 + cherry 27 + toolbar 12 + ui-fixes 11 全绿；
   Electron 实测右键新建子分类弹窗输入→创建成功、删除确认弹窗→取消不删/确定才删
+- **v1.0.4 发行**：便携 4 平台 + Windows/macOS（arm64 + x64）桌面安装包；
+  官网新增 macOS 桌面版 dmg 下载卡片（arm64 / Intel）；桌面更新源同步
+  `latest.yml`（Windows）与 `latest-mac.yml`（macOS）
 
 ## 2026-11-14
 

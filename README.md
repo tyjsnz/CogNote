@@ -17,6 +17,8 @@
 | Windows x64 | `Cognote-v1.0.4-windows-x64.zip` |
 | macOS（Apple 芯片） | `Cognote-v1.0.4-macos-arm64.zip` |
 | macOS（Intel） | `Cognote-v1.0.4-macos-x64.zip` |
+| macOS 桌面版（Apple 芯片，dmg） | `Cognote-1.0.4-macos-arm64.dmg` |
+| macOS 桌面版（Intel，dmg） | `Cognote-1.0.4-macos-x64.dmg` |
 | Linux x64 | `Cognote-v1.0.4-linux-x64.zip` |
 | 云同步服务端（自建） | `Cognote-Sync-Server-v1.0.4.zip` |
 
