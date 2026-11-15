@@ -47,6 +47,10 @@ set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 npm run desktop:pack:win
 ```
 
+> **在 macOS/Linux 上交叉打 Windows 包**时，electron-builder 默认跟随本机架构
+> （Apple 芯片会出 arm64 包），必须显式指定 x64：
+> `npx electron-builder --win --x64`。
+
 产物在 `dist\desktop\`：
 
 | 文件 | 用途 |

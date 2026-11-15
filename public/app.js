@@ -530,9 +530,6 @@
     const s = stripDirPrefix(fromRel);
     const t = stripDirPrefix(targetRel);
     if ((s.dir || '') !== (t.dir || '')) return { error: '暂不支持跨笔记目录移动' };
-    const firstDir = (state.config?.notesDirs || [])[0] || '';
-    const cloudDir = state.config?.cloud?.dir || '';
-    if (s.dir && s.dir !== firstDir && s.dir !== cloudDir) return { error: '暂不支持跨笔记目录移动' };
     const name = s.rel.split('/').pop();
     if (!name) return { error: '无效的拖动源' };
     let targetDir;
@@ -549,7 +546,8 @@
     }
     const to = targetDir ? targetDir + '/' + name : name;
     if (to === s.rel) return { error: '位置未变化' };
-    return { from: s.rel, to };
+    // dir：来源所属笔记目录（多目录/云同步前缀剥离后的完整路径），移动时随方案一起传递
+    return { from: s.rel, to, dir: s.dir || '' };
   }
 
   function clearDropHighlight() {
@@ -654,7 +652,8 @@
     if (_treeMoving) return;
     _treeMoving = true;
     const bt = busyToast('正在移动：' + plan.from + ' → ' + plan.to + ' …');
-    const noteDir = stripDirPrefix(plan.from).dir;
+    // plan.from 已剥离目录前缀，不能再 stripDirPrefix（会丢 dir 落回第一个笔记目录）；用方案里携带的 dir
+    const noteDir = plan.dir || '';
     const fromTree = applyDirPrefix(plan.from, noteDir);
     const toTree = applyDirPrefix(plan.to, noteDir);
     try {
@@ -2477,6 +2476,10 @@
   }
 
   function bindMoveTree(container, tree) {
+    // renderMoveDialog 每次打开都会重绘 innerHTML，但容器 #move-tree 是同一个；
+    // 必须只绑定一次，否则第二次打开后同一点击会触发多次 toggle，展开/收起互相抵消
+    if (container._moveWired) return;
+    container._moveWired = true;
     container.addEventListener('click', (e) => {
       const node = e.target.closest('.tree-node');
       if (!node || node.dataset.type !== 'dir') return;
