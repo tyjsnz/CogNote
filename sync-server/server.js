@@ -9,6 +9,9 @@
  *   GET  /api/file?path=xx         → 下载单个文件（base64）
  *   PUT  /api/file                 → 上传单个文件 {path, content(base64), mtimeMs}
  *   POST /api/file/delete          → 删除文件 {path}
+ * 加密分享（E2EE）：客户端把分享范围明文用「查看口令」加密成 blob 上传（data/share-blobs/<id>.bin），
+ * 查看者输口令、服务端现场 scrypt 派生解密渲染——服务端不存口令，磁盘上只有密文。
+ * 注意：e2ee 内联实现须与客户端 src/e2ee.js 保持一致。
  */
 const http = require('node:http');
 const fs = require('node:fs');
@@ -87,6 +90,50 @@ function absOf(rel) {
 
 function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+// ---------- 端到端加密（与客户端 src/e2ee.js 完全一致，独立部署需内联维护） ----------
+// 加密分享的 blob 用「查看口令」加密；服务端不存口令，仅在 open/file 请求现场解密渲染。
+const E2EE_MAGIC = Buffer.from('CNTE2E1', 'ascii');
+const E2EE_SALT_DEFAULT = 'cognote-e2ee-v1';
+const E2EE_SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+const E2EE_NONCE_LEN = 12;
+const E2EE_TAG_LEN = 16;
+const E2EE_HEADER_LEN = E2EE_MAGIC.length + E2EE_NONCE_LEN + E2EE_TAG_LEN;
+
+function e2eeDeriveKey(passphrase, salt) {
+  if (!passphrase) throw new Error('缺少加密口令');
+  return crypto.scryptSync(String(passphrase), salt || E2EE_SALT_DEFAULT, 32, E2EE_SCRYPT);
+}
+
+function e2eeEncrypt(key, plain, aad) {
+  const aadBuf = aad == null ? null : Buffer.from(String(aad), 'utf8');
+  const nonce = crypto.createHmac('sha256', key)
+    .update(Buffer.concat([aadBuf || Buffer.alloc(0), Buffer.from([0]), plain]))
+    .digest()
+    .subarray(0, E2EE_NONCE_LEN);
+  const c = crypto.createCipheriv('aes-256-gcm', key, nonce);
+  if (aadBuf) c.setAAD(aadBuf);
+  const ct = Buffer.concat([c.update(plain), c.final()]);
+  return Buffer.concat([E2EE_MAGIC, nonce, c.getAuthTag(), ct]);
+}
+
+function e2eeDecrypt(key, buf, aad) {
+  if (!Buffer.isBuffer(buf) || buf.length < E2EE_HEADER_LEN || !buf.subarray(0, E2EE_MAGIC.length).equals(E2EE_MAGIC)) {
+    throw new Error('无效的加密数据');
+  }
+  const aadBuf = aad == null ? null : Buffer.from(String(aad), 'utf8');
+  const nonce = buf.subarray(E2EE_MAGIC.length, E2EE_MAGIC.length + E2EE_NONCE_LEN);
+  const tag = buf.subarray(E2EE_MAGIC.length + E2EE_NONCE_LEN, E2EE_HEADER_LEN);
+  const ct = buf.subarray(E2EE_HEADER_LEN);
+  const d = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+  if (aadBuf) d.setAAD(aadBuf);
+  d.setAuthTag(tag);
+  try {
+    return Buffer.concat([d.update(ct), d.final()]);
+  } catch {
+    throw new Error('解密失败：查看密码不正确或数据已损坏');
+  }
 }
 
 // ---------- helpers ----------
@@ -289,6 +336,45 @@ function shareExpired(s) {
   return s.expiresAt > 0 && Date.now() > s.expiresAt;
 }
 
+// ---------- 加密分享 blob（data/share-blobs/<id>.bin，查看口令加密的分享内容快照） ----------
+const SHARE_BLOBS_DIR = path.join(config.dataDir, 'share-blobs');
+fs.mkdirSync(SHARE_BLOBS_DIR, { recursive: true });
+
+function shareBlobPath(id) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id || ''))) throw new Error('非法分享 id');
+  return path.join(SHARE_BLOBS_DIR, id + '.bin');
+}
+
+// 解密后的 payload 缓存（id → { at, payload }）：避免每个文件请求都跑一遍 scrypt
+const SHARE_PAYLOAD_TTL = 10 * 60000;
+const SHARE_PAYLOAD_MAX = 30;
+const sharePayloadCache = new Map();
+function clearSharePayload(id) {
+  sharePayloadCache.delete(id);
+}
+async function loadSharePayload(id, password) {
+  const hit = sharePayloadCache.get(id);
+  const now = Date.now();
+  if (hit && now - hit.at < SHARE_PAYLOAD_TTL) return hit.payload;
+  const raw = await fsp.readFile(shareBlobPath(id));
+  const key = e2eeDeriveKey(password, shares.items[id] && shares.items[id].salt);
+  const payload = JSON.parse(e2eeDecrypt(key, raw, 'share').toString('utf8'));
+  if (payload.v !== 1 || !payload.files || typeof payload.files !== 'object') throw new Error('分享数据格式无效');
+  if (sharePayloadCache.size >= SHARE_PAYLOAD_MAX) {
+    // 淘汰最旧的一条
+    const oldest = [...sharePayloadCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) sharePayloadCache.delete(oldest[0]);
+  }
+  sharePayloadCache.set(id, { at: now, payload });
+  return payload;
+}
+
+function b64ByteLen(b64) {
+  const s = String(b64 || '');
+  const pad = s.endsWith('==') ? 2 : (s.endsWith('=') ? 1 : 0);
+  return Math.floor(s.length * 3 / 4) - pad;
+}
+
 function sharePathAllowed(s, p) {
   return s.paths.some((base) => {
     const b = base.replace(/\/+$/, '');
@@ -378,7 +464,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (p === '/api/ping' && req.method === 'GET') {
       if (!checkToken(req, url)) return sendJson(res, 401, { ok: false, error: 'Token 无效' });
-      return sendJson(res, 200, { ok: true, serverTime: Date.now(), version: manifest.version, fileCount: Object.keys(manifest.files).length });
+      return sendJson(res, 200, { ok: true, serverTime: Date.now(), version: manifest.version, fileCount: Object.keys(manifest.files).length, features: { e2eeShare: true } });
     }
 
     // ---------- 公开分享接口（无需同步 Token，靠分享密码保护） ----------
@@ -388,9 +474,25 @@ const server = http.createServer(async (req, res) => {
       const r = authShare(req, id, body.password);
       if (r.error) return sendJson(res, r.status, { ok: false, error: r.error });
       const s = r.share;
-      const files = [];
-      for (const [rel, sf] of Object.entries(manifest.files)) {
-        if (sharePathAllowed(s, rel)) files.push({ path: rel, size: sf.size, mtimeMs: sf.mtimeMs });
+      const enc = !!s.enc;
+      let files = [];
+      if (enc) {
+        // 加密分享：文件清单来自解密后的 payload（服务端磁盘上只有密文快照，无 paths 明文结构）
+        let payload;
+        try {
+          payload = await loadSharePayload(id, String(body.password || ''));
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, error: '分享数据解密失败: ' + e.message });
+        }
+        files = Object.keys(payload.files).map((rel) => ({
+          path: rel,
+          size: b64ByteLen(payload.files[rel]),
+          mtimeMs: (payload.mtimes && payload.mtimes[rel]) || s.createdAt,
+        }));
+      } else {
+        for (const [rel, sf] of Object.entries(manifest.files)) {
+          if (sharePathAllowed(s, rel)) files.push({ path: rel, size: sf.size, mtimeMs: sf.mtimeMs });
+        }
       }
       files.sort((a, b2) => a.path.localeCompare(b2.path));
       recordShareView(s);
@@ -401,22 +503,38 @@ const server = http.createServer(async (req, res) => {
         paths: s.paths,
         expiresAt: s.expiresAt,
         files,
+        enc,
       });
     }
     if (p === '/api/public/share/file' && req.method === 'GET') {
       const id = (url.searchParams.get('id') || '').trim();
       const rel = safeRel(url.searchParams.get('path'));
-      const r = authShare(req, id, url.searchParams.get('password'));
+      const password = url.searchParams.get('password');
+      const r = authShare(req, id, password);
       if (r.error) return sendJson(res, r.status, { ok: false, error: r.error });
       if (!rel) return sendJson(res, 400, { ok: false, error: '非法路径' });
       if (!sharePathAllowed(r.share, rel)) return sendJson(res, 403, { ok: false, error: '该文件不在分享范围内' });
-      if (!manifest.files[rel]) return sendJson(res, 404, { ok: false, error: '文件不存在' });
-      let buf;
-      try { buf = await fsp.readFile(absOf(rel)); } catch { return sendJson(res, 404, { ok: false, error: '文件不存在' }); }
+      let contentB64;
+      if (r.share.enc) {
+        // 加密分享：从口令解密的 payload 快照取文件，不落明文
+        let payload;
+        try {
+          payload = await loadSharePayload(id, String(password || ''));
+        } catch (e) {
+          return sendJson(res, 500, { ok: false, error: '分享数据解密失败: ' + e.message });
+        }
+        contentB64 = payload.files[rel];
+        if (contentB64 == null) return sendJson(res, 404, { ok: false, error: '文件不存在' });
+      } else {
+        if (!manifest.files[rel]) return sendJson(res, 404, { ok: false, error: '文件不存在' });
+        let buf;
+        try { buf = await fsp.readFile(absOf(rel)); } catch { return sendJson(res, 404, { ok: false, error: '文件不存在' }); }
+        contentB64 = buf.toString('base64');
+      }
       // 阅读统计：每次成功读取 md 笔记 +1（图片等资源不计）
       recordFileView(r.share, rel);
       await saveShares();
-      return sendJson(res, 200, { ok: true, path: rel, content: buf.toString('base64'), mime: guessMime(rel) });
+      return sendJson(res, 200, { ok: true, path: rel, content: contentB64, mime: guessMime(rel) });
     }
     if (p === '/s/viewer' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
@@ -439,12 +557,13 @@ const server = http.createServer(async (req, res) => {
         lastViewAt: s.lastViewAt || 0,
         viewDays: s.viewDays || {},
         fileViews: s.fileViews || {},
+        enc: !!s.enc,
       }));
       list.sort((a, b2) => b2.createdAt - a.createdAt);
       return sendJson(res, 200, { ok: true, shares: list });
     }
     if (p === '/api/shares/create' && req.method === 'POST') {
-      const body = await readBody(req, 65536);
+      const body = await readBody(req, LIMIT); // 加密分享 blob（明文打包+口令加密）可达数十 MB
       const rawPaths = Array.isArray(body.paths) ? body.paths : [];
       const paths = [...new Set(rawPaths.map((x) => safeRel(x)).filter(Boolean))];
       if (!paths.length) return sendJson(res, 400, { ok: false, error: '缺少分享路径' });
@@ -453,12 +572,21 @@ const server = http.createServer(async (req, res) => {
       const days = Number(body.expireDays) || 0; // 0=长期, 1/7/30
       if (![0, 1, 7, 30].includes(days)) return sendJson(res, 400, { ok: false, error: '有效期仅支持 1/7/30 天或长期' });
       const id = crypto.randomBytes(9).toString('base64url');
-      const salt = crypto.randomBytes(8).toString('hex');
+      // 加密分享：客户端把分享范围的明文打包用查看口令加密后上传（salt 由客户端生成，
+      // 与口令校验共用同一 salt，open/file 时现场派生解密，服务端不存口令）
+      const enc = !!(body.salt && body.blob);
+      const salt = enc ? String(body.salt) : crypto.randomBytes(8).toString('hex');
+      if (enc) {
+        const blob = Buffer.from(String(body.blob), 'base64');
+        if (!blob.length) return sendJson(res, 400, { ok: false, error: '加密分享数据为空' });
+        await fsp.writeFile(shareBlobPath(id), blob);
+      }
       shares.items[id] = {
         title: String(body.title || '').slice(0, 100),
         paths,
         salt,
         hash: passwordHash(salt, password),
+        enc,
         createdAt: Date.now(),
         expiresAt: days > 0 ? Date.now() + days * 86400000 : 0,
         disabled: false,
@@ -469,13 +597,15 @@ const server = http.createServer(async (req, res) => {
       };
       await saveShares();
       const s = shares.items[id];
-      return sendJson(res, 200, { ok: true, share: { id, title: s.title, paths: s.paths, createdAt: s.createdAt, expiresAt: s.expiresAt } });
+      return sendJson(res, 200, { ok: true, share: { id, title: s.title, paths: s.paths, createdAt: s.createdAt, expiresAt: s.expiresAt, enc } });
     }
     if (p === '/api/shares/delete' && req.method === 'POST') {
       const body = await readBody(req, 65536);
       const id = String(body.id || '').trim();
       if (!shares.items[id]) return sendJson(res, 404, { ok: false, error: '分享不存在' });
       delete shares.items[id];
+      clearSharePayload(id);
+      await fsp.unlink(shareBlobPath(id)).catch(() => {}); // 加密 blob 一并清理
       await saveShares();
       return sendJson(res, 200, { ok: true });
     }
@@ -491,16 +621,27 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, disabled: s.disabled });
     }
     if (p === '/api/shares/password' && req.method === 'POST') {
-      const body = await readBody(req, 65536);
+      const body = await readBody(req, LIMIT); // 同 create：可能携带新口令加密的 blob
       const id = String(body.id || '').trim();
       const s = shares.items[id];
       if (!s) return sendJson(res, 404, { ok: false, error: '分享不存在' });
       const password = String(body.password || '').trim();
       if (password.length < 4) return sendJson(res, 400, { ok: false, error: '查看密码至少 4 位' });
-      s.salt = crypto.randomBytes(8).toString('hex');
+      const newSalt = crypto.randomBytes(8).toString('hex');
+      const enc = !!s.enc;
+      if (enc && !(body.salt && body.blob)) {
+        return sendJson(res, 400, { ok: false, error: '加密分享修改密码必须携带新的加密数据' });
+      }
+      s.salt = enc ? String(body.salt) : newSalt;
       s.hash = passwordHash(s.salt, password);
+      if (enc) {
+        const blob = Buffer.from(String(body.blob), 'base64');
+        if (!blob.length) return sendJson(res, 400, { ok: false, error: '加密分享数据为空' });
+        await fsp.writeFile(shareBlobPath(id), blob);
+      }
+      clearSharePayload(id); // 口令/密文已变，作废解密缓存
       await saveShares();
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, enc });
     }
 
     if (p === '/api/sync' && req.method === 'POST') {

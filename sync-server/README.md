@@ -10,8 +10,14 @@
 - **删除传播**：本地删除会同步删除云端，云端删除会同步删除本地（带 tombstone，避免误删新内容）
 - **笔记分享**：生成「链接 + 查看密码」的公开阅读页，支持 1/7/30 天或长期有效，
   密码错误限流（同 IP 失败 10 次锁 10 分钟）
+- **加密分享（E2EE）**：客户端开启云端加密后，创建分享会把分享范围内的笔记明文
+  用「查看密码」打包加密成 blob 上传（`data/share-blobs/<id>.bin`）；查看者输入密码、
+  服务端现场 scrypt 派生解密渲染——**服务端不存查看密码，磁盘上只有密文**
 - **零依赖**：只用 Node 内置模块，无需 npm install
 - **原子写盘**：清单文件 temp + rename，避免断电写坏
+
+> ⚠️ 加密分享的 e2ee 逻辑在 `server.js` 内联实现，与客户端 `src/e2ee.js`
+> **必须保持一致**（魔数 / scrypt 参数 / nonce 派生），改动需两边同步。
 
 ## 文件结构
 
@@ -21,9 +27,10 @@ sync-server/
 ├── share-viewer.html  # 分享查看页（自包含 HTML，被 /s/viewer 返回）
 ├── config.json        # 配置（首次启动自动生成 token）
 └── data/
-    ├── files/         # 笔记与附件（按相对路径存储）
+    ├── files/         # 笔记与附件（按相对路径存储；客户端开 E2EE 后为密文）
+    ├── share-blobs/   # 加密分享的口令加密 blob（<分享id>.bin，服务端无法读取）
     ├── manifest.json  # 文件清单（hash / mtime / 版本号）
-    └── shares.json    # 分享记录（id / 路径白名单 / 密码哈希 / 有效期）
+    └── shares.json    # 分享记录（id / 路径白名单 / 密码哈希 / 有效期 / enc 标记）
 ```
 
 `config.json`：
@@ -109,6 +116,7 @@ NGINX
 | 云端访问 Token | `config.json` 中的 `token` |
 | 本地云端同步目录 | 留空使用默认（程序目录下 `云端同步`） |
 | 自动同步间隔 | 60 秒 |
+| 🔒 云端内容端到端加密 | 可选勾选 + 设置加密口令（所有设备用同一口令；服务端只存密文） |
 
 保存后目录树会出现「☁️ 云端同步」根分类，在它下面新建的分类和笔记会自动上传；
 其它电脑配置相同地址 + Token 即可同步同一份云端笔记。
@@ -119,16 +127,16 @@ NGINX
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/ping` | 连通性与 Token 校验 |
+| GET | `/api/ping` | 连通性与 Token 校验（返回 `features.e2eeShare` 表示支持加密分享） |
 | POST | `/api/sync` | 双向差异同步（`local` 清单 + `known` 上次同步 hash） |
 | GET | `/api/file?path=` | 下载单个文件（base64） |
 | PUT | `/api/file` | 上传/覆盖 `{path, content(base64), mtimeMs}` |
 | POST | `/api/file/delete` | 删除云端文件 `{path}` |
-| GET | `/api/shares` | 分享列表（状态 / 有效期 / 浏览统计） |
-| POST | `/api/shares/create` | 创建分享 `{title, paths[], password(≥4位), expireDays(0/1/7/30)}` |
+| GET | `/api/shares` | 分享列表（状态 / 有效期 / 浏览统计 / `enc` 标记） |
+| POST | `/api/shares/create` | 创建分享 `{title, paths[], password(≥4位), expireDays(0/1/7/30), salt?, blob?}`（`salt+blob` = 加密分享，响应 `share.enc:true`） |
 | POST | `/api/shares/toggle` | 停用/启用 `{id, disabled}`（停用返回 410，数据与统计保留） |
-| POST | `/api/shares/delete` | 删除分享 `{id}`（链接与统计永久删除） |
-| POST | `/api/shares/password` | 修改查看密码 `{id, password}` |
+| POST | `/api/shares/delete` | 删除分享 `{id}`（链接与统计永久删除，blob 一并清理） |
+| POST | `/api/shares/password` | 修改查看密码 `{id, password, salt?, blob?}`（加密分享必须携带新 blob） |
 
 公开接口在密码验证通过后累计浏览统计：`views`（open 次数）、`viewDays`（按天）、
 `fileViews`（每篇 md 笔记被读取次数，图片不计），随分享记录存于 `shares.json`。
@@ -138,8 +146,8 @@ NGINX
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/s/viewer?id=` | 分享查看页（HTML） |
-| POST | `/api/public/share/open` | 校验密码 `{id, password}` → 文件清单 |
-| GET | `/api/public/share/file` | 读取分享内文件 `?id=&password=&path=`（base64） |
+| POST | `/api/public/share/open` | 校验密码 `{id, password}` → 文件清单（加密分享返回 `enc:true`，文件清单来自解密后的快照） |
+| GET | `/api/public/share/file` | 读取分享内文件 `?id=&password=&path=`（base64；加密分享现场解密返回明文） |
 
 密码错误返回 403 并计数，同 id + IP 失败 10 次锁定 10 分钟（429）；分享过期返回 410。
 

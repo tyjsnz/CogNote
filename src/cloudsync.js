@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const e2ee = require('./e2ee');
 
 const SYNC_STATE_DIR = '.cognote-sync';
 const STATE_FILE = 'state.json';
@@ -49,6 +50,7 @@ class CloudSync {
     return {
       enabled: !!cfg.enabled,
       configured: !!(cfg.enabled && cfg.url && cfg.token),
+      encrypt: !!cfg.encrypt,
       url: cfg.url || '',
       dir: this.getCloudDir() || '',
       intervalSec: cfg.intervalSec || 60,
@@ -58,6 +60,52 @@ class CloudSync {
       lastSummary: this.lastSummary,
       lastChangeAt: this.lastChangeAt,
     };
+  }
+
+  // ---------- 端到端加密（cloud.encrypt + cloud.passphrase） ----------
+  // 密钥按口令派生并缓存；未启用加密返回 null（明文模式，行为与旧版完全一致）
+  encKey() {
+    const cfg = this.getConfig() || {};
+    if (!cfg.encrypt) return null;
+    if (!cfg.passphrase) throw new Error('已启用云端加密，但尚未设置加密口令（设置 → 云端同步）');
+    if (this._keyCache && this._keyCache.pass === cfg.passphrase) return this._keyCache.key;
+    const key = e2ee.deriveKey(cfg.passphrase);
+    this._keyCache = { pass: cfg.passphrase, key };
+    return key;
+  }
+
+  // 明文 → 待上传字节（加密开启时为密文；AAD 绑定路径）
+  encryptFor(plain, rel) {
+    const key = this.encKey();
+    return key ? e2ee.encrypt(key, plain, rel) : plain;
+  }
+
+  // 解密用密钥：加密开启走 encKey（无口令抛错）；加密关闭但本地仍留有口令时也能派生，
+  // 用于「关闭加密」迁移期解密服务端残留的旧密文（关闭加密 ≠ 读不懂旧数据）
+  decKey() {
+    const cfg = this.getConfig() || {};
+    if (!cfg.passphrase) return null;
+    if (this._decKeyCache && this._decKeyCache.pass === cfg.passphrase) return this._decKeyCache.key;
+    const key = e2ee.deriveKey(cfg.passphrase);
+    this._decKeyCache = { pass: cfg.passphrase, key };
+    return key;
+  }
+
+  // 服务端字节 → 明文；无魔数返回原样（明文模式/迁移期），口令错返回 plain:null
+  decBuf(buf, rel) {
+    if (!e2ee.isEncrypted(buf)) return { plain: buf };
+    const key = this.encKey() || this.decKey(); // 加密开启但没口令 → encKey 已抛明确错误
+    if (!key) return { plain: null, error: new Error('云端为加密数据，但尚未设置加密口令') };
+    try {
+      return { plain: e2ee.decrypt(key, buf, rel) };
+    } catch (e) {
+      return { plain: null, error: e };
+    }
+  }
+
+  // 本地明文在同步状态里的 hash 口径（加密开启 = 密文 hash，与服务端 manifest 一致）
+  hashOf(plain, rel) {
+    return sha256(this.encryptFor(plain, rel));
   }
 
   // ---------- 定时 / 延迟触发 ----------
@@ -115,6 +163,7 @@ class CloudSync {
   async scanLocal() {
     const root = this.getCloudDir();
     const out = [];
+    const self = this; // rec 是普通函数，显式持有实例
     async function rec(dirAbs, dirRel) {
       let entries;
       try {
@@ -132,7 +181,11 @@ class CloudSync {
           try {
             const buf = await fsp.readFile(abs);
             const st = await fsp.stat(abs);
-            out.push({ path: rel, hash: sha256(buf), mtimeMs: Math.round(st.mtimeMs), _buf: buf });
+            // 加密开启：上传字节为密文（hash 按密文口径），冲突副本写盘需用明文
+            const enc = self.encryptFor(buf, rel);
+            const item = { path: rel, hash: sha256(enc), mtimeMs: Math.round(st.mtimeMs), _buf: enc };
+            if (enc !== buf) item._plain = buf;
+            out.push(item);
           } catch { /* 忽略读取失败的文件 */ }
         }
       }
@@ -182,6 +235,7 @@ class CloudSync {
     if (!cfg.url || !cfg.token) return { skipped: true, reason: 'not-configured' };
     const dir = this.getCloudDir();
     if (!dir) return { skipped: true, reason: 'no-dir' };
+    this.encKey(); // 加密已启用但未设口令 → 在此抛出明确错误，避免半途失败
 
     this.syncing = true;
     const summary = { pushed: 0, pulled: 0, deleted: 0, remoteDeleted: 0, conflicts: 0, error: '', changedPaths: [], removedPaths: [] };
@@ -211,11 +265,17 @@ class CloudSync {
 
           if (item.conflictCopy) {
             // 服务端旧版本被本地新版本覆盖 → 服务端旧内容存为本地冲突副本（下轮自动上传）
+            const dec = this.decBuf(buf, rel);
+            if (!dec.plain) {
+              // 旧密文口令不一致 → 无法解密，本地版本已胜出，直接丢弃该副本
+              console.warn(`[cloud] 冲突副本无法解密，已丢弃: ${rel}`);
+              continue;
+            }
             const cRel = this.conflictName(rel, Date.now());
             const cAbs = path.join(dir, ...cRel.split('/'));
             await fsp.mkdir(path.dirname(cAbs), { recursive: true });
-            await fsp.writeFile(cAbs, buf);
-            state.files[cRel] = { hash: sha256(buf) };
+            await fsp.writeFile(cAbs, dec.plain);
+            state.files[cRel] = { hash: this.hashOf(dec.plain, cRel) };
             summary.conflicts++;
             touched.add(cRel);
             changed = true;
@@ -225,18 +285,35 @@ class CloudSync {
           if (item.conflict) {
             // 双方都改过且服务端更新 → 本地版本存冲突副本，写入服务端版本
             const lf = localByPath.get(rel);
-            if (lf && lf._buf) {
+            if (lf && (lf._plain || lf._buf)) {
+              const localPlain = lf._plain || lf._buf;
               const cRel = this.conflictName(rel, Date.now());
               const cAbs = path.join(dir, ...cRel.split('/'));
               await fsp.mkdir(path.dirname(cAbs), { recursive: true });
-              await fsp.writeFile(cAbs, lf._buf);
-              state.files[cRel] = { hash: sha256(lf._buf) };
+              await fsp.writeFile(cAbs, localPlain);
+              state.files[cRel] = { hash: this.hashOf(localPlain, cRel) };
               summary.conflicts++;
             }
           }
 
+          const dec = this.decBuf(buf, rel);
+          if (!dec.plain) {
+            // 服务端版本无法解密（口令不一致）：
+            // - 本地已有该文件 → 记为「已知版本」，下一轮本地版本判定为变更并上传覆盖，自动收敛
+            // - 本地没有该文件 → 绝不能记已知版本（known 有、本地无 会被服务端判定为
+            //   「本地已删除 → 删远端」，误删其它设备的数据）；只跳过，等口令修正后再拉取
+            if (localByPath.has(rel)) {
+              console.warn(`[cloud] 云端文件解密失败（加密口令不一致？），跳过并上传本地版本: ${rel}`);
+              state.files[rel] = { hash: item.hash || sha256(buf) };
+              changed = true;
+            } else {
+              console.warn(`[cloud] 云端文件解密失败（加密口令不一致？），本地无该文件已跳过: ${rel}`);
+            }
+            continue;
+          }
+
           await fsp.mkdir(path.dirname(abs), { recursive: true });
-          await fsp.writeFile(abs, buf);
+          await fsp.writeFile(abs, dec.plain);
           try { await fsp.utimes(abs, new Date(item.mtimeMs || Date.now()), new Date(item.mtimeMs || Date.now())); } catch {}
           state.files[rel] = { hash: item.hash || sha256(buf) };
           summary.pulled++;

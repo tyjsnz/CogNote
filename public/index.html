@@ -282,6 +282,17 @@
       <label>自动同步间隔（秒，最小 15）
         <input id="cfg-cloud-interval" type="number" min="15" step="5" placeholder="60">
       </label>
+      <label class="check-row">
+        <input id="cfg-cloud-encrypt" type="checkbox">
+        <span class="check-row-title">🔒 云端内容端到端加密（E2EE）</span>
+        <span class="check-row-hint">
+          开启后笔记内容以密文上传，云端服务器只能看到文件名和目录结构，无法阅读正文；本地始终为明文，搜索/索引不受影响。<br>
+          所有设备必须输入同一个加密口令才能同步；已有的分享需删除后重新创建才会包含加密内容。
+        </span>
+      </label>
+      <label>加密口令
+        <input id="cfg-cloud-passphrase" type="password" placeholder="留空表示不修改已保存的加密口令">
+      </label>
       <div class="cloud-actions">
         <button type="button" id="btn-cloud-test" class="link-btn">🔌 测试连接</button>
         <button type="button" id="btn-cloud-sync-now" class="link-btn">🔄 立即同步</button>

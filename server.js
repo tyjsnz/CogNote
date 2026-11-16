@@ -12,6 +12,7 @@ const notesApi = require('./src/notes');
 const { ReviewManager } = require('./src/review');
 const { CloudSync, SYNC_STATE_DIR } = require('./src/cloudsync');
 const { extractZip } = require('./src/zipextract');
+const e2ee = require('./src/e2ee');
 
 const ROOT = __dirname;
 
@@ -271,6 +272,8 @@ function cloudPublicConfig() {
     dir: cloudDirPath(),
     intervalSec: Number(c.intervalSec) || 60,
     tokenSet: !!c.token,
+    encrypt: !!c.encrypt,          // 是否开启端到端加密（口令本身不下发前端）
+    passphraseSet: !!c.passphrase,
   };
 }
 
@@ -575,6 +578,12 @@ async function handleApi(pathname, req, res, url) {
     if (typeof body.clearToken === 'boolean' && body.clearToken) next.token = '';
     if (typeof body.dir === 'string') next.dir = body.dir.trim();
     if (body.intervalSec != null) next.intervalSec = Math.max(15, parseInt(body.intervalSec, 10) || 60);
+    // 端到端加密：encrypt 开关 + 加密口令（留空表示不修改已保存的口令）
+    if (typeof body.encrypt === 'boolean') next.encrypt = body.encrypt;
+    if (typeof body.passphrase === 'string' && body.passphrase.trim()) next.passphrase = body.passphrase.trim();
+    if (next.encrypt && !next.passphrase) throw new Error('开启云端加密前请先设置加密口令');
+    // 注意：切换加密/口令不重置同步状态——state 记录的是「已知的服务端版本 hash」，
+    // 保持它可让下一轮按「本地变更 → 上传」覆盖为新密文/明文，避免触发下载旧密文解密失败
 
     const probeCfg = { enabled: true, url: next.url, token: next.token };
 
@@ -639,6 +648,28 @@ async function handleApi(pathname, req, res, url) {
   }
 
   // ---------- 分享（代理云端 sync-server） ----------
+  // 加密分享：云端已开启 E2EE 时，服务端存的是密文、无法渲染分享页。
+  // 创建/改密时用「查看口令」把分享范围内的明文打包加密后一并上传（blob），
+  // 查看者输入口令、服务端现场解密——服务端始终拿不到口令，只有密文。
+  function buildShareBlob(paths, password) {
+    const cd = cloudDirPath();
+    const files = {};
+    const mtimes = {};
+    for (const rel of paths) {
+      try {
+        const abs = path.join(cd, ...rel.split('/'));
+        if (!fs.statSync(abs).isFile()) continue;
+        files[rel] = fs.readFileSync(abs).toString('base64');
+        mtimes[rel] = Math.round(fs.statSync(abs).mtimeMs);
+      } catch { /* 文件已不存在则跳过 */ }
+    }
+    if (!Object.keys(files).length) throw new Error('分享范围内没有可读文件');
+    const salt = crypto.randomBytes(8).toString('hex');
+    const payload = Buffer.from(JSON.stringify({ v: 1, files, mtimes }), 'utf8');
+    const key = e2ee.deriveKey(password, salt);
+    return { salt, blob: e2ee.encrypt(key, payload, 'share').toString('base64') };
+  }
+
   // 创建分享：dir = 云端目录内相对路径（'' 表示整个云端目录）
   if (pathname === '/api/share/create' && req.method === 'POST') {
     const body = await readBody(req);
@@ -651,12 +682,18 @@ async function handleApi(pathname, req, res, url) {
     }
     const paths = collectSharePaths(dir);
     if (!paths.length) throw new Error('分享范围内没有可分享的 Markdown 笔记');
+    const password = String(body.password || '').trim();
+    const enc = (config.cloud || {}).encrypt ? buildShareBlob(paths, password) : null;
     const data = await syncRequest('POST', '/api/shares/create', {
       title: String(body.title || '').trim() || dir.split('/').pop() || '云端笔记',
       paths,
-      password: String(body.password || '').trim(),
+      password,
       expireDays: Number(body.expireDays) || 0,
+      ...(enc || {}),
     });
+    if (enc && !data.share.enc) {
+      throw new Error('云端同步服务端版本过旧，不支持加密分享，请先升级 sync-server 后重试');
+    }
     const shareUrl = String((config.cloud || {}).url || '').replace(/\/+$/, '') + '/s/viewer?id=' + data.share.id;
     return sendJson(res, 200, { ok: true, share: { ...data.share, url: shareUrl } });
   }
@@ -679,10 +716,22 @@ async function handleApi(pathname, req, res, url) {
     const data = await syncRequest('POST', '/api/shares/toggle', { id: String(body.id || '').trim(), disabled: !!body.disabled });
     return sendJson(res, 200, data);
   }
-  // 修改查看密码
+  // 修改查看密码（加密模式下同步重建加密 blob，旧 blob 与新口令不匹配必须换新）
   if (pathname === '/api/share/password' && req.method === 'POST') {
     const body = await readBody(req);
-    await syncRequest('POST', '/api/shares/password', { id: String(body.id || '').trim(), password: String(body.password || '').trim() });
+    const id = String(body.id || '').trim();
+    const password = String(body.password || '').trim();
+    let extra = {};
+    if ((config.cloud || {}).encrypt) {
+      const list = await syncRequest('GET', '/api/shares');
+      const target = (list.shares || []).find((x) => x.id === id);
+      if (!target) return sendJson(res, 404, { ok: false, error: '分享不存在' });
+      extra = buildShareBlob(target.paths || [], password);
+    }
+    const data = await syncRequest('POST', '/api/shares/password', { id, password, ...extra });
+    if (extra.salt && !data.enc) {
+      throw new Error('云端同步服务端版本过旧，不支持加密分享，请先升级 sync-server 后重试');
+    }
     return sendJson(res, 200, { ok: true });
   }
 

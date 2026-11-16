@@ -3113,6 +3113,9 @@
     $('#cfg-cloud-token').placeholder = cloud.tokenSet ? '已保存（留空表示不修改）' : '输入云端访问 Token';
     $('#cfg-cloud-dir').value = cloud.dir || '';
     $('#cfg-cloud-interval').value = cloud.intervalSec || 60;
+    $('#cfg-cloud-encrypt').checked = !!cloud.encrypt;
+    $('#cfg-cloud-passphrase').value = '';
+    $('#cfg-cloud-passphrase').placeholder = cloud.passphraseSet ? '已保存（留空表示不修改）' : '输入加密口令';
     renderCloudSettingsStatus(state.cloudStatus || cloud);
     const provider = state.config.ai?.provider || 'deepseek';
     $('#cfg-ai-provider').value = provider;
@@ -3163,11 +3166,26 @@
     const cloudToken = $('#cfg-cloud-token').value.trim();
     const cloudDir = $('#cfg-cloud-dir').value.trim();
     const cloudInterval = Number($('#cfg-cloud-interval').value) || 60;
+    const cloudEncrypt = $('#cfg-cloud-encrypt').checked;
+    const cloudPassphrase = $('#cfg-cloud-passphrase').value;
     if (cloudEnabled && !cloudUrl) {
       return toast('启用云端同步前请填写服务器地址', true);
     }
     if (cloudEnabled && !cloudToken && !state.config?.cloud?.tokenSet) {
       return toast('启用云端同步前请填写 Token', true);
+    }
+    if (cloudEncrypt && !cloudPassphrase.trim() && !state.config?.cloud?.passphraseSet) {
+      return toast('开启云端加密前请设置加密口令', true);
+    }
+    // 开启加密且已有分享 → 明确提醒（旧分享内容为创建时的明文快照，需重建才纳入加密）
+    if (cloudEncrypt && !state.config?.cloud?.encrypt) {
+      try {
+        const d = await api('/api/cloud/shares');
+        if ((d.shares || []).length) {
+          const okGo = window.confirm('开启云端加密后，已有的分享仍是创建时的明文快照（内容不会自动加密）。\n\n建议删除旧分享并重新创建。确定要开启吗？');
+          if (!okGo) return;
+        }
+      } catch { /* 分享列表获取失败不阻塞保存 */ }
     }
 
     // 保存过程给出「进行中 → 成功 / 失败」三态提示（重建索引可能耗时）
@@ -3190,6 +3208,8 @@
             token: cloudToken,
             dir: cloudDir,
             intervalSec: cloudInterval,
+            encrypt: cloudEncrypt,
+            passphrase: cloudPassphrase, // 留空 = 不修改已保存的口令
           }),
         });
       }
