@@ -179,8 +179,24 @@ class CloudSync {
           await rec(abs, rel);
         } else if (e.isFile() && SUPPORTED_RE.test(e.name)) {
           try {
-            const buf = await fsp.readFile(abs);
+            let buf = await fsp.readFile(abs);
             const st = await fsp.stat(abs);
+            // 自愈 + 防双层加密：本地正常永远是明文。若发现密文（如同步事故、
+            // 旧版进程把服务端密文直落盘），尝试解密并写回明文修复乱码；
+            // 解密失败（口令不符）则原样保留并按原字节做 hash——
+            // 绝不能对密文再次 encryptFor（会产生双层密文，对端只能解一层仍是乱码，
+            // 且会持续污染云端）。
+            if (e2ee.isEncrypted(buf)) {
+              const healed = self.decBuf(buf, rel);
+              if (healed.plain) {
+                await fsp.writeFile(abs, healed.plain).catch(() => {});
+                buf = healed.plain;
+              } else {
+                console.warn(`[cloud] 本地文件为密文且无法解密（口令不一致？），按原样处理不二次加密: ${rel}`);
+                out.push({ path: rel, hash: sha256(buf), mtimeMs: Math.round(st.mtimeMs), _buf: buf });
+                continue;
+              }
+            }
             // 加密开启：上传字节为密文（hash 按密文口径），冲突副本写盘需用明文
             const enc = self.encryptFor(buf, rel);
             const item = { path: rel, hash: sha256(enc), mtimeMs: Math.round(st.mtimeMs), _buf: enc };
@@ -255,7 +271,8 @@ class CloudSync {
         });
 
         const localByPath = new Map(local.map((f) => [f.path, f]));
-        let changed = false;
+        let changed = false;    // 有文件被写入/删除（内容动作）
+        let stateHeal = false;  // 仅修正 state 落后（不产生内容变化，不刷新前端树）
 
         // 1) 下载（含冲突副本落地）
         for (const item of resp.download || []) {
@@ -353,8 +370,34 @@ class CloudSync {
           changed = true;
         }
 
-        if (changed) {
+        // 5) state 落后自愈：本轮无任何动作的本地文件 ⇔ 与服务端内容一致
+        //    （handleSync 对 lf.hash===sf.hash 直接 continue，不回传动作），
+        //    若 state 仍停在旧值则补写为当前本地 hash。
+        //    真实故障场景：先以明文模式下载 P（state=sha256(P)），后开加密
+        //    本地重算 hash=sha256(Enc(P)) 追平服务端，但 state 不更新 →
+        //    下一轮 known≠lf 被误判「双方都改」→ 产生垃圾冲突副本。
+        //    注意：内联下载被预算截断时 download 列表不完整，
+        //    「无动作」不再等价于「双方一致」，此时跳过补写（下轮再修）。
+        if (!resp.truncated) {
+          const acted = new Set();
+          for (const it of resp.download || []) acted.add(it.path);
+          for (const it of resp.upload || []) acted.add(it);
+          for (const it of resp.deleteLocal || []) acted.add(it);
+          for (const it of resp.deletedRemote || []) acted.add(it);
+          for (const lf of local) {
+            if (acted.has(lf.path)) continue;
+            const cur = state.files[lf.path];
+            if (!cur || cur.hash !== lf.hash) {
+              state.files[lf.path] = { hash: lf.hash };
+              stateHeal = true;
+            }
+          }
+        }
+
+        if (changed || stateHeal) {
           await this.saveState(state);
+        }
+        if (changed) {
           this.lastChangeAt = Date.now();
         }
         this.lastRev = resp.version || 0;
