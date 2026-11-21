@@ -40,10 +40,26 @@ function saveWindowState() {
 }
 
 // ---------- 内置服务 ----------
+// 启动日志：写到 <userData>/logs/server.log，启动超时/崩溃时可据此定位
+function logFilePath() {
+  const dir = path.join(app.getPath('userData'), 'logs');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return path.join(dir, 'server.log');
+}
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const dataDir = app.getPath('userData');
     try { fs.mkdirSync(dataDir, { recursive: true }); } catch { /* ignore */ }
+    const logPath = logFilePath();
+    const logTail = [];
+    try { fs.writeFileSync(logPath, `[${new Date().toISOString()}] Cognote ${app.getVersion()} 启动\n`); } catch {}
+    const recordLog = (text) => {
+      logTail.push(text);
+      if (logTail.length > 300) logTail.shift();
+      try { fs.appendFileSync(logPath, text); } catch {}
+    };
+    const logSnippet = () => logTail.slice(-25).join('').trim();
     const child = spawn(process.execPath, [path.join(APP_ROOT, 'server.js')], {
       cwd: APP_ROOT,
       env: {
@@ -61,12 +77,14 @@ function startServer() {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      reject(new Error('服务启动超时（30 秒）'));
-    }, 30000);
+      const tail = logSnippet();
+      reject(new Error('服务启动超时（90 秒）\n\n日志文件：' + logPath + (tail ? '\n\n最近日志：\n' + tail : '')));
+    }, 90000);
 
     const onLine = (buf) => {
       const text = String(buf);
       process.stdout.write(text);
+      recordLog(text);
       const m = text.match(/已启动:\s*(http:\/\/[^\s]+)/);
       if (m && !settled) {
         settled = true;
@@ -76,12 +94,17 @@ function startServer() {
       }
     };
     child.stdout.on('data', onLine);
-    child.stderr.on('data', (buf) => process.stderr.write(String(buf)));
+    child.stderr.on('data', (buf) => {
+      const text = String(buf);
+      process.stderr.write(text);
+      recordLog('[stderr] ' + text);
+    });
     child.on('exit', (code) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        reject(new Error('服务进程退出（code=' + code + '）'));
+        const tail = logSnippet();
+        reject(new Error('服务进程退出（code=' + code + '）\n\n日志文件：' + logPath + (tail ? '\n\n最近日志：\n' + tail : '')));
       } else if (!quitting) {
         dialog.showErrorBox('Cognote 服务已停止', '内置服务异常退出（code=' + code + '），应用将关闭。');
         app.quit();
@@ -312,8 +335,19 @@ if (!gotLock) {
         setTimeout(() => app.quit(), 300);
       }
     } catch (e) {
-      dialog.showErrorBox('Cognote 启动失败', String(e && e.message || e));
-      app.quit();
+      const detail = String((e && e.message) || e);
+      dialog.showMessageBox({
+        type: 'error',
+        title: 'Cognote 启动失败',
+        message: '内置服务未能启动',
+        detail: detail.length > 1200 ? detail.slice(0, 1200) + '…' : detail,
+        buttons: ['打开日志目录', '退出'],
+        defaultId: 0,
+        cancelId: 1,
+      }).then(({ response }) => {
+        if (response === 0) shell.openPath(path.join(app.getPath('userData'), 'logs'));
+        app.quit();
+      }).catch(() => app.quit());
     }
 
     app.on('activate', () => {

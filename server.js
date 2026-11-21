@@ -304,6 +304,50 @@ function initReview() {
   if (r.changed) console.log(`[Cognote] 复习数据 key 已同步: ${r.count} 条`);
 }
 
+// 启动只做「轻量初始化」：解析目录 + 建空索引实例，保证 HTTP 服务能立刻监听。
+// 真正的索引加载/扫描/保存（大库或慢盘上可能几十秒）放到监听之后的后台执行，
+// 避免桌面端 30 秒启动超时（Windows 冷启动 + 杀毒扫描 / NAS 目录时尤其明显）。
+function prepareIndexerLight() {
+  let dirs = effectiveDirs();
+  dirs = dirs.filter((d, i, arr) => !arr.some((o, j) => j !== i && path.resolve(d).startsWith(path.resolve(o) + path.sep)));
+  if (!dirs.length) {
+    const scanDir = path.join(EXE_DIR, '.empty-notes');
+    try { fs.mkdirSync(scanDir, { recursive: true }); } catch {}
+    dirs = [scanDir];
+  }
+  config.notesDir = dirs[0];
+  const scope = indexScopeFor(dirs);
+  indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs, scope });
+  search = new SearchEngine(indexer);
+  initReview();
+  console.log(`[Cognote] 索引范围: ${indexer.scope.length} 个目录${indexer.prefixActive ? '（key 带目录前缀）' : ''}`);
+}
+
+let indexing = false;
+function startIndexingInBackground() {
+  if (indexing) return;
+  indexing = true;
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    if (s > 0 && s % 5 === 0) console.log(`[Cognote] 索引构建中… 已用 ${s}s`);
+  }, 1000);
+  if (tick.unref) tick.unref();
+  // 让当前事件循环先完成监听与首屏响应，再开始重活
+  setTimeout(() => {
+    try {
+      const info = rebuildIndexer(true);
+      const cost = ((Date.now() - t0) / 1000).toFixed(1);
+      console.log(`[Cognote] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}（用时 ${cost}s）`);
+    } catch (err) {
+      console.error(`[Cognote] 索引构建失败: ${err.message}`);
+    } finally {
+      clearInterval(tick);
+      indexing = false;
+    }
+  }, 0);
+}
+
 function rebuildIndexer(incremental = false) {
   // 支持多目录：优先使用 notesDirs 数组，兼容旧 notesDir；云端目录自动追加
   let dirs = effectiveDirs();
@@ -882,8 +926,8 @@ async function handleApi(pathname, req, res, url) {
 
   if (pathname === '/api/search' && req.method === 'GET') {
     const q = url.searchParams.get('q') || '';
-    if (!q.trim()) return sendJson(res, 200, { query: q, total: 0, results: [] });
-    return sendJson(res, 200, search.query(q));
+    if (!q.trim()) return sendJson(res, 200, { query: q, total: 0, results: [], indexing });
+    return sendJson(res, 200, { ...search.query(q), indexing });
   }
 
   if (pathname === '/api/note' && req.method === 'GET') {
@@ -1539,12 +1583,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// 启动前构建索引（增量模式：加载缓存 + 只更新变更文件）
+// 启动前只做轻量初始化；索引构建在端口监听后后台执行（见 startIndexingInBackground）
 try {
-  const info = rebuildIndexer(true);
-  console.log(`[Cognote] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}`);
+  prepareIndexerLight();
 } catch (err) {
-  console.error(`[Cognote] 索引构建失败: ${err.message}`);
+  console.error(`[Cognote] 索引初始化失败: ${err.message}`);
   process.exit(1);
 }
 
@@ -1573,6 +1616,7 @@ function tryListen(port, attemptsLeft) {
     console.log(`[Cognote] 笔记目录: ${config.notesDir || '(未设置)'}`);
     console.log(`[Cognote] 配置文件: ${CONFIG_PATH}`);
     console.log(`[Cognote] DeepSeek AI: ${ai.isConfigured() ? '已配置' : '未配置 (编辑 config.json 的 deepseek.apiKey)'}`);
+    startIndexingInBackground();
     if (cloudEnabled()) {
       console.log(`[Cognote] 云端同步: ${config.cloud.url || '(未设置地址)'} → ${cloudDirPath()}`);
       cloudSync.startTimer();
