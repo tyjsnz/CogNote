@@ -31,6 +31,18 @@
     } catch (error) {
       console.log(error);
     }
+    // 画布变更通知（供 .drawio 文件页做自动保存）
+    try {
+      editorUIInstance.editor.graph.getModel().addListener(mxEvent.CHANGE, function() {
+        if (window.__drawioSuppressChange) return;
+        var now = Date.now();
+        if (now - (window.__drawioLastChange || 0) < 300) return;
+        window.__drawioLastChange = now;
+        window.parent.postMessage({ eventName: 'changed' }, '*');
+      });
+    } catch (error) {
+      console.log(error);
+    }
     window.parent.postMessage({eventName: 'ready', value: ''}, '*');
 
 	}, function()
@@ -38,6 +50,71 @@
 		document.body.innerHTML = '<center style="margin-top:10%;">Error loading resource files. Please check browser console.</center>';
 	});
 })();
+
+// ---------- .drawio 原生文件（<mxfile> / 压缩 diagram / 多页）支持 ----------
+// draw.io 文件格式：<mxfile><diagram>…</diagram></mxfile>
+// diagram 内容可能是未压缩 <mxGraphModel>，也可能是 base64(deflateRaw(encodeURIComponent(xml)))
+function drawioBytesFromBase64(text) {
+  // 该 mxClient 版本没有 mxUtils.base64decode；drawio 自己的 Base64 编码是标准 base64
+  var raw = typeof atob === 'function' ? atob(text) : mxUtils.base64decode(text);
+  var arr = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+function drawioFirstDiagramModel(doc) {
+  var root = doc.documentElement;
+  if (!root) throw new Error('文件为空');
+  if (root.nodeName === 'mxGraphModel') return root;
+  if (root.nodeName !== 'mxfile') throw new Error('不支持的文件格式: ' + root.nodeName);
+  var diagram = root.getElementsByTagName('diagram')[0];
+  if (!diagram) throw new Error('文件中没有 diagram 页面');
+  var inline = diagram.getElementsByTagName('mxGraphModel')[0];
+  if (inline) return inline;
+  var text = (diagram.textContent || '').replace(/\s+/g, '');
+  if (!text) throw new Error('diagram 页面内容为空');
+  var inflated;
+  try {
+    inflated = pako.inflateRaw(drawioBytesFromBase64(text), { to: 'string' });
+  } catch (e) {
+    throw new Error('无法解析压缩的 diagram: ' + e.message);
+  }
+  return mxUtils.parseXml(decodeURIComponent(inflated)).documentElement;
+}
+
+function loadDrawioFile(xml, fallbackName) {
+  var doc = mxUtils.parseXml(xml);
+  if (!doc.documentElement || doc.documentElement.nodeName === 'parsererror') {
+    throw new Error('XML 解析失败');
+  }
+  var model = drawioFirstDiagramModel(doc);
+  var diagram = doc.documentElement.nodeName === 'mxfile' ? doc.getElementsByTagName('diagram')[0] : null;
+  window.__drawioFile = {
+    doc: diagram ? doc : null,  // 保留原文档以保留多页/属性，保存时只回写第一页
+    name: (diagram && diagram.getAttribute('name')) || fallbackName || 'Page-1',
+  };
+  window.__drawioSuppressChange = true;
+  try {
+    editorUIInstance.editor.setGraphXml(null);
+    editorUIInstance.editor.graph.importGraphModel(model);
+    editorUIInstance.editor.setFilename(window.__drawioFile.name);
+  } finally {
+    window.__drawioSuppressChange = false;
+  }
+}
+
+function serializeDrawioFile() {
+  var modelXml = mxUtils.getXml(editorUIInstance.editor.getGraphXml());
+  var state = window.__drawioFile;
+  if (!state || !state.doc) return modelXml;
+  var doc = state.doc;
+  var diagram = doc.getElementsByTagName('diagram')[0];
+  if (!diagram) return modelXml;
+  while (diagram.firstChild) diagram.removeChild(diagram.firstChild);
+  var modelDoc = mxUtils.parseXml(modelXml);
+  diagram.appendChild(doc.importNode(modelDoc.documentElement, true));
+  return mxUtils.getXml(doc);
+}
 
 function addPostMessageListener(graphEditor) {
   window.addEventListener('message', function(event) {
@@ -79,6 +156,22 @@ function addPostMessageListener(graphEditor) {
             }
           }, '*');
         })
+        break;
+      case 'setFileData':
+        try {
+          loadDrawioFile(event.data.value || '', event.data.name);
+          window.parent.postMessage({ eventName: 'setFileData:success', value: '' }, '*');
+        } catch (error) {
+          console.warn('[drawio] setFileData 失败:', error);
+          window.parent.postMessage({ eventName: 'setFileData:error', value: String((error && error.message) || error) }, '*');
+        }
+        break;
+      case 'getFileData':
+        try {
+          window.parent.postMessage({ eventName: 'getFileData:success', value: { xmlData: serializeDrawioFile() } }, '*');
+        } catch (error) {
+          window.parent.postMessage({ eventName: 'getFileData:error', value: String((error && error.message) || error) }, '*');
+        }
         break;
       case 'ready?':
         window.parent.postMessage({eventName: 'ready', value: ''}, '*');

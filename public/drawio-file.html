@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>draw.io 文件</title>
+<style>
+  :root {
+    --bar-h: 42px;
+    --border: #e3e6ea;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; background: #fff; }
+  #bar {
+    height: var(--bar-h);
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    background: #fafbfc;
+    font-size: 13px;
+  }
+  #name { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+  #dirty { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex: 0 0 auto; }
+  #dirty.on { background: #f59e0b; }
+  #status { color: var(--muted); }
+  #status.err { color: var(--danger); }
+  #status.ok { color: var(--ok); }
+  .spacer { flex: 1; }
+  #btn-save {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #btn-save:disabled { opacity: .5; cursor: default; }
+  #btn-save:hover:not(:disabled) { filter: brightness(1.05); }
+  #frame { flex: 1; width: 100%; border: none; display: block; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <span id="name">draw.io</span>
+    <span id="dirty" title="有未保存修改"></span>
+    <span id="status">加载中…</span>
+    <span class="spacer"></span>
+    <button id="btn-save" disabled>保存</button>
+  </div>
+  <iframe id="frame" src="vendor/drawio/drawio_demo.html" allow="clipboard-read; clipboard-write"></iframe>
+
+<script>
+(function () {
+  'use strict';
+  const params = new URLSearchParams(location.search);
+  const rel = params.get('rel') || '';
+  const dir = params.get('dir') || '';
+  const frame = document.getElementById('frame');
+  const nameEl = document.getElementById('name');
+  const statusEl = document.getElementById('status');
+  const dirtyEl = document.getElementById('dirty');
+  const saveBtn = document.getElementById('btn-save');
+
+  let ready = false;
+  let loaded = false;
+  let loading = false;
+  let dirty = false;
+  let saving = false;
+  let saveTimer = null;
+  let pendingSave = null;   // Promise 复用，避免并发 getFileData
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = kind || '';
+  }
+  function setDirty(v) {
+    dirty = !!v;
+    dirtyEl.classList.toggle('on', dirty);
+  }
+  function post(msg) {
+    frame.contentWindow.postMessage(msg, '*');
+  }
+  function apiUrl() {
+    return '/api/drawio?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '');
+  }
+
+  function loadFile() {
+    if (loading || loaded) return;
+    loading = true;
+    setStatus('读取文件…');
+    fetch(apiUrl())
+      .then(async (r) => {
+        const text = await r.text();
+        if (!r.ok) {
+          let msg = text;
+          try { msg = JSON.parse(text).error || text; } catch {}
+          throw new Error(msg || ('HTTP ' + r.status));
+        }
+        return JSON.parse(text);
+      })
+      .then((d) => {
+        nameEl.textContent = (d.relPath || rel).split('/').pop();
+        document.title = nameEl.textContent + ' · draw.io';
+        post({ eventName: 'setFileData', value: d.content, name: nameEl.textContent.replace(/\.draw\.?io$/i, '') });
+      })
+      .catch((e) => {
+        loading = false;
+        setStatus('打开失败：' + e.message, 'err');
+      });
+  }
+
+  function requestSave() {
+    if (!ready || !loaded) return Promise.resolve(false);
+    if (pendingSave) return pendingSave;
+    pendingSave = new Promise((resolve) => {
+      const onMsg = (ev) => {
+        const d = ev.data || {};
+        if (d.eventName !== 'getFileData:success' && d.eventName !== 'getFileData:error') return;
+        window.removeEventListener('message', onMsg);
+        pendingSave = null;
+        if (d.eventName === 'getFileData:error') {
+          setStatus('保存失败：' + d.value, 'err');
+          resolve(false);
+          return;
+        }
+        const xml = (d.value && d.value.xmlData) || '';
+        saving = true;
+        setStatus('保存中…');
+        fetch('/api/drawio', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rel: rel, dir: dir, content: xml }),
+        })
+          .then(async (r) => {
+            const text = await r.text();
+            if (!r.ok) {
+              let msg = text;
+              try { msg = JSON.parse(text).error || text; } catch {}
+              throw new Error(msg || ('HTTP ' + r.status));
+            }
+            const t = new Date();
+            const hh = String(t.getHours()).padStart(2, '0');
+            const mm = String(t.getMinutes()).padStart(2, '0');
+            const ss = String(t.getSeconds()).padStart(2, '0');
+            setDirty(false);
+            setStatus('已保存 ' + hh + ':' + mm + ':' + ss, 'ok');
+            resolve(true);
+          })
+          .catch((e) => {
+            setStatus('保存失败：' + e.message, 'err');
+            resolve(false);
+          })
+          .finally(() => { saving = false; saveBtn.disabled = false; });
+      };
+      window.addEventListener('message', onMsg);
+      post({ eventName: 'getFileData' });
+    });
+    return pendingSave;
+  }
+
+  function scheduleSave(delay) {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      requestSave();
+    }, delay == null ? 1500 : delay);
+  }
+
+  saveBtn.addEventListener('click', () => {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    saveBtn.disabled = true;
+    requestSave();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 's') {
+      e.preventDefault();
+      saveBtn.click();
+    }
+  });
+
+  window.addEventListener('message', (ev) => {
+    const d = ev.data || {};
+    switch (d.eventName) {
+      case 'ready':
+        ready = true;
+        loadFile();
+        break;
+      case 'setFileData:success':
+        if (!loaded) {
+          loaded = true;
+          loading = false;
+          setDirty(false);
+          setStatus('可直接编辑，修改会自动保存', 'ok');
+          saveBtn.disabled = false;
+        }
+        break;
+      case 'setFileData:error':
+        loading = false;
+        setStatus('读取失败：' + d.value, 'err');
+        break;
+      case 'changed':
+        if (!loaded) break;
+        setDirty(true);
+        setStatus('未保存…');
+        scheduleSave();
+        break;
+      default:
+        break;
+    }
+  });
+
+  frame.addEventListener('load', () => {
+    // draw.io 页面可能早于本脚本发出 ready，主动问一次
+    try { post({ eventName: 'ready?' }); } catch {}
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (!dirty) return;
+    // 自动保存有 1.5s 防抖，离开前提示以免丢失最后一笔
+    e.preventDefault();
+    e.returnValue = '';
+  });
+})();
+</script>
+</body>
+</html>

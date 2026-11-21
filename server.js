@@ -914,6 +914,44 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
     return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
   }
 
+  // ---------- draw.io 原生文件（.drawio / .draw.io）读写 ----------
+  // 只允许这两种后缀，避免变成任意文件写入接口
+  const DRAWIO_FILE_RE = /\.(drawio|draw\.io)$/i;
+  if (pathname === '/api/drawio' && req.method === 'GET') {
+    const rel = url.searchParams.get('rel');
+    const dir = url.searchParams.get('dir');
+    if (!rel) throw new Error('缺少 rel 参数');
+    if (!DRAWIO_FILE_RE.test(rel)) throw new Error('不是 draw.io 文件: ' + rel);
+    let fileDir = resolveNoteDir(dir);
+    let abs = notesApi.safeResolve(fileDir, rel);
+    if ((!fs.existsSync(abs) || !fs.statSync(abs).isFile()) && cloudEnabled() && !isCloudPath(fileDir)) {
+      const cloudAbs = notesApi.safeResolve(cloudDirPath(), rel);
+      if (fs.existsSync(cloudAbs) && fs.statSync(cloudAbs).isFile()) {
+        fileDir = cloudDirPath();
+        abs = cloudAbs;
+      }
+    }
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('文件不存在: ' + rel);
+    const st = fs.statSync(abs);
+    if (st.size > 8 * 1024 * 1024) throw new Error('draw.io 文件过大（>8MB）');
+    const content = await fsp.readFile(abs, 'utf8');
+    return sendJson(res, 200, { relPath: notesApi.toPosix(rel), content, size: st.size, mtimeMs: st.mtimeMs });
+  }
+
+  if (pathname === '/api/drawio' && (req.method === 'PUT' || req.method === 'POST')) {
+    const body = await readBody(req);
+    if (!body.rel) throw new Error('缺少 rel');
+    if (!DRAWIO_FILE_RE.test(body.rel)) throw new Error('不是 draw.io 文件: ' + body.rel);
+    if (typeof body.content !== 'string') throw new Error('缺少 content');
+    if (body.content.length > 16 * 1024 * 1024) throw new Error('内容过大（>16MB）');
+    const noteDir = resolveNoteDir(body.dir);
+    const abs = notesApi.safeResolve(noteDir, body.rel);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, body.content, 'utf8');
+    touchCloud(noteDir);
+    return sendJson(res, 200, { ok: true, relPath: notesApi.toPosix(body.rel) });
+  }
+
   if (pathname === '/api/note/move' && req.method === 'POST') {
     const body = await readBody(req);
     if (!body.from || !body.to) throw new Error('缺少 from/to');
@@ -1026,6 +1064,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       '.svg': 'image/svg+xml',
       '.txt': 'text/plain',
       '.md': 'text/markdown',
+      '.drawio': 'application/xml; charset=utf-8',
       '.doc': 'application/msword',
       '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       '.xls': 'application/vnd.ms-excel',
@@ -1082,7 +1121,7 @@ if (pathname === '/api/note' && (req.method === 'PUT' || req.method === 'POST'))
       '.properties': 'text/plain; charset=utf-8',
       '.gradle': 'text/plain; charset=utf-8',
       '.cmake': 'text/plain; charset=utf-8',
-    }[ext] || 'application/octet-stream';
+    }[/\.(drawio|draw\.io)$/i.test(abs) ? '.drawio' : ext] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': mime });
     const stream = fs.createReadStream(abs);
     stream.on('error', (err) => {

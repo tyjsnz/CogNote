@@ -777,6 +777,23 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
   display: block;
 }
 
+/* draw.io 原生文件编辑器 */
+.drawio-file-viewer {
+  width: 100%;
+  height: 78vh;
+  min-height: 520px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow: hidden;
+  background: var(--panel);
+}
+.drawio-file-viewer iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
 /* Editor */
 #editor { width: 100%; max-width: min(1800px, 100%); margin: 0 auto; }
 .editor-toolbar {

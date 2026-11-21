@@ -455,7 +455,7 @@
     const rel = node.relPath;
     const branch = children.length > 0;
     const open = branch && (isDir ? (ui.expanded.size ? ui.expanded.has(rel) : depth < 2) : ui.expanded.has(rel));
-    const icon = node._cloud ? '☁️' : (isDir ? '📁' : '📄');
+    const icon = node._cloud ? '☁️' : (isDir ? '📁' : (DRAWIO_FILE_RE.test(node.name) ? '📐' : '📄'));
     html +=
       '<div class="tree-node ' + (isDir ? 'dir' : 'file') + (node._cloud ? ' cloud-root' : '') + '" data-rel="' + esc(rel) + '" data-type="' + (isDir ? 'dir' : 'file') + '" draggable="true">' +
       '<span class="arrow">' + (branch ? (open ? '▾' : '▸') : '') + '</span>' +
@@ -1410,6 +1410,18 @@
       syncSelection();
       return;
     }
+    // draw.io 原生文件（.drawio / .draw.io）：内置编辑器查看 + 自动保存
+    if (/\.(drawio|draw\.io)$/i.test(treeRel)) {
+      $('#note-body').innerHTML =
+        '<div class="drawio-file-viewer">' +
+        '<iframe src="/drawio-file.html?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '') + '" title="' + escAttr(treeRel) + '"></iframe>' +
+        '</div>';
+      ui.view = { type: 'note', rel: treeRel };
+      saveUI();
+      renderCover();
+      syncSelection();
+      return;
+    }
     // Office 文档等其它文件：提供下载链接
     if (!/\.md$/i.test(treeRel)) {
       $('#note-body').innerHTML =
@@ -1636,6 +1648,7 @@
   let monacoEditor = null;
   let monacoReady = false;
   const CODE_FILE_RE = /\.(js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|zsh|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|env|vue|svelte|rb|php|swift|kt|scala|lua|r|pl|ex|exs|erl|hs|ml|fs|clj|lisp|el|vim|proto|graphql|gql|tf|hcl|ini|cfg|conf|properties|gradle|cmake|makefile|mk)$/i;
+  const DRAWIO_FILE_RE = /\.(drawio|draw\.io)$/i;
 
   function isCodeFile(rel) {
     return CODE_FILE_RE.test(rel);
@@ -2086,6 +2099,11 @@
   function openEditor() {
     if (!state.currentRel && !state.currentDir) {
       toast('请先选择一篇笔记或分类', true);
+      return;
+    }
+    // draw.io 原生文件在预览区内置编辑器里改，避免被当成 Markdown 打开
+    if (state.currentRel && DRAWIO_FILE_RE.test(state.currentRel)) {
+      toast('draw.io 文件已在预览区打开，直接在画布上编辑（自动保存）');
       return;
     }
     // 代码文件使用 Monaco Editor

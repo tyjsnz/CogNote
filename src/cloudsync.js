@@ -12,7 +12,7 @@ const e2ee = require('./e2ee');
 
 const SYNC_STATE_DIR = '.cognote-sync';
 const STATE_FILE = 'state.json';
-const SUPPORTED_RE = /\.(md|pdf|txt|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?|zip|js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|vue|svelte|rb|php|swift|kt|scala|lua|r|ini|cfg|conf|properties)$/i;
+const SUPPORTED_RE = /\.(md|pdf|txt|drawio|draw\.io|png|jpe?g|gif|webp|svg|docx?|xlsx?|pptx?|zip|js|jsx|ts|tsx|mjs|cjs|py|c|cpp|h|hpp|java|go|rs|sh|bash|json|yaml|yml|toml|xml|html|htm|css|scss|less|sql|csv|log|vue|svelte|rb|php|swift|kt|scala|lua|r|ini|cfg|conf|properties)$/i;
 const MAX_SYNC_ROUNDS = 30;   // 内容内联受预算限制时的分轮拉取上限
 const TIMEOUT_MS = 60000;
 
