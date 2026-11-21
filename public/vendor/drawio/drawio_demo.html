@@ -6,6 +6,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>draw.io demo</title>
     <link rel="stylesheet" href="./assets/drawio_lib/grapheditor.css">
+    <!--
+      demo 页没有引入 mxgraph 的 common.css，弹出菜单缺少定位规则：
+      div.mxPopupMenu 变成 static → 菜单被工具栏遮住、点击命中错误元素，
+      表现为「菜单点了没反应、没有子菜单」。这里只补 mxPopupMenu 必需的几条。
+    -->
+    <style>
+      div.mxPopupMenu {
+        position: absolute;
+        background: #fff;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, .18);
+        z-index: 10006;
+      }
+      table.mxPopupMenu { border-collapse: collapse; margin: 1px 0; }
+      tr.mxPopupMenuItem { color: #000; cursor: pointer; }
+      tr.mxPopupMenuItemHover { background-color: #000066; color: #fff; }
+      tr.mxPopupMenuItemHover td, tr.mxPopupMenuItemHover span { color: #fff; }
+      td.mxPopupMenuItem { white-space: nowrap; padding: 4px 8px; font-size: 12px; }
+      td.mxPopupMenuItem.mxDisabled { color: #9ca3af; }
+    </style>
     <!-- <link rel="stylesheet" href="https://jgraph.github.io/drawio/src/main/webapp/mxgraph/css/common.css"> -->
 </head>
 

@@ -31,6 +31,18 @@
     } catch (error) {
       console.log(error);
     }
+    // 原生菜单/快捷键里的「保存 / 另存为」接回宿主页面
+    // （demo 壳没有后端文件服务，否则点击 saveFile 无任何反应）
+    try {
+      editorUIInstance.actions.addAction('save', function() {
+        window.parent.postMessage({ eventName: 'requestSave' }, '*');
+      }, null, null, 'Ctrl+S');
+      editorUIInstance.actions.addAction('saveAs...', function() {
+        window.parent.postMessage({ eventName: 'requestDownload' }, '*');
+      }, null, null, 'Ctrl+Shift+S');
+    } catch (error) {
+      console.log(error);
+    }
     // 画布变更通知（供 .drawio 文件页做自动保存）
     try {
       editorUIInstance.editor.graph.getModel().addListener(mxEvent.CHANGE, function() {
@@ -62,13 +74,18 @@ function drawioBytesFromBase64(text) {
   return arr;
 }
 
-function drawioFirstDiagramModel(doc) {
-  var root = doc.documentElement;
-  if (!root) throw new Error('文件为空');
-  if (root.nodeName === 'mxGraphModel') return root;
-  if (root.nodeName !== 'mxfile') throw new Error('不支持的文件格式: ' + root.nodeName);
-  var diagram = root.getElementsByTagName('diagram')[0];
-  if (!diagram) throw new Error('文件中没有 diagram 页面');
+function drawioDiagramElements(doc) {
+  var root = doc && doc.documentElement;
+  if (!root || root.nodeName !== 'mxfile') return [];
+  var list = [];
+  for (var n = root.firstChild; n; n = n.nextSibling) {
+    if (n.nodeType === 1 && n.nodeName === 'diagram') list.push(n);
+  }
+  return list;
+}
+
+function drawioDiagramModel(diagram) {
+  if (!diagram) throw new Error('页面不存在');
   var inline = diagram.getElementsByTagName('mxGraphModel')[0];
   if (inline) return inline;
   var text = (diagram.textContent || '').replace(/\s+/g, '');
@@ -82,15 +99,27 @@ function drawioFirstDiagramModel(doc) {
   return mxUtils.parseXml(decodeURIComponent(inflated)).documentElement;
 }
 
-function loadDrawioFile(xml, fallbackName) {
+function drawioFirstDiagramModel(doc) {
+  var root = doc.documentElement;
+  if (!root) throw new Error('文件为空');
+  if (root.nodeName === 'mxGraphModel') return root;
+  if (root.nodeName !== 'mxfile') throw new Error('不支持的文件格式: ' + root.nodeName);
+  return drawioDiagramModel(drawioDiagramElements(doc)[0]);
+}
+
+// 加载 .drawio：pageIndex 指定显示第几页（多页文件支持切换）
+function loadDrawioFile(xml, fallbackName, pageIndex) {
   var doc = mxUtils.parseXml(xml);
   if (!doc.documentElement || doc.documentElement.nodeName === 'parsererror') {
     throw new Error('XML 解析失败');
   }
-  var model = drawioFirstDiagramModel(doc);
-  var diagram = doc.documentElement.nodeName === 'mxfile' ? doc.getElementsByTagName('diagram')[0] : null;
+  var diagrams = drawioDiagramElements(doc);
+  var idx = Math.max(0, Math.min(Number(pageIndex) || 0, Math.max(0, diagrams.length - 1)));
+  var diagram = diagrams[idx] || null;
+  var model = diagram ? drawioDiagramModel(diagram) : drawioFirstDiagramModel(doc);
   window.__drawioFile = {
-    doc: diagram ? doc : null,  // 保留原文档以保留多页/属性，保存时只回写第一页
+    doc: diagrams.length ? doc : null,  // 保留原文档以保留多页/属性，保存时只回写当前页
+    index: idx,
     name: (diagram && diagram.getAttribute('name')) || fallbackName || 'Page-1',
   };
   window.__drawioSuppressChange = true;
@@ -112,7 +141,8 @@ function serializeDrawioFile() {
   var state = window.__drawioFile;
   if (!state || !state.doc) return modelXml;
   var doc = state.doc;
-  var diagram = doc.getElementsByTagName('diagram')[0];
+  var diagrams = drawioDiagramElements(doc);
+  var diagram = diagrams[state.index || 0] || diagrams[0];
   if (!diagram) return modelXml;
   while (diagram.firstChild) diagram.removeChild(diagram.firstChild);
   var modelDoc = mxUtils.parseXml(modelXml);
@@ -163,7 +193,7 @@ function addPostMessageListener(graphEditor) {
         break;
       case 'setFileData':
         try {
-          loadDrawioFile(event.data.value || '', event.data.name);
+          loadDrawioFile(event.data.value || '', event.data.name, event.data.pageIndex);
           window.parent.postMessage({ eventName: 'setFileData:success', value: '' }, '*');
         } catch (error) {
           console.warn('[drawio] setFileData 失败:', error);

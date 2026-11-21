@@ -3470,6 +3470,7 @@
     });
     $('#btn-rescan').addEventListener('click', async () => {
       toast('正在重新扫描...');
+      watchIndexProgress().catch(() => {});
       await api('/api/rescan', { method: 'POST' });
       await Promise.all([loadTree(), loadTags(), loadStats()]);
       toast('重新扫描完成');
@@ -3676,6 +3677,35 @@
     selectDir('');
   }
 
+  // ---------- 索引加载提示 ----------
+  // 启动后索引在后台构建（大库/慢盘可能需要数十秒），期间给用户明确提示，
+  // 并按「已处理/总数」显示进度；完成后自动隐藏并提示可用。
+  let indexWatchTimer = null;
+  async function watchIndexProgress() {
+    const el = document.getElementById('index-progress');
+    const text = document.getElementById('index-progress-text');
+    if (!el || !text) return;
+    if (indexWatchTimer) clearTimeout(indexWatchTimer);
+    let shownAt = 0;
+    const tick = async () => {
+      let st = null;
+      try { st = await api('/api/status'); } catch (_) { /* 服务刚就绪，稍后再试 */ }
+      if (st && st.indexing) {
+        if (el.classList.contains('hidden')) { el.classList.remove('hidden'); shownAt = Date.now(); }
+        const p = st.progress;
+        text.textContent = (p && p.total)
+          ? ('正在加载文档索引… ' + p.done + '/' + p.total)
+          : '正在加载文档索引…';
+        indexWatchTimer = setTimeout(tick, 600);
+        return;
+      }
+      el.classList.add('hidden');
+      if (shownAt && Date.now() - shownAt > 3000) toast('文档索引已就绪，可以搜索了');
+      indexWatchTimer = null;
+    };
+    tick();
+  }
+
   async function init() {
     applyTheme();
     bindEvents();
@@ -3686,6 +3716,7 @@
     applyAiPanelState();
     applySidebarState();
     await fetchConfig();
+    watchIndexProgress().catch(() => {}); // 后台索引进度提示（不阻塞）
     checkUpdate().catch(() => {}); // 启动时静默检查更新（不阻塞初始化）
     try {
       await Promise.all([loadTree(), loadTags(), loadStats()]);

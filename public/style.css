@@ -1318,3 +1318,32 @@ mark { background: var(--mark-bg); border-radius: 3px; padding: 0 1px; color: in
     scroll-behavior: auto !important;
   }
 }
+
+/* 索引加载提示（启动后后台建立索引期间显示） */
+.index-progress {
+  position: fixed;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .12);
+  font-size: 13px;
+  color: var(--text);
+}
+.index-progress.hidden { display: none; }
+.index-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: index-spin .8s linear infinite;
+}
+@keyframes index-spin { to { transform: rotate(360deg); } }

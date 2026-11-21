@@ -921,6 +921,17 @@ async function handleApi(pathname, req, res, url) {
     return sendJson(res, 200, publicConfig());
   }
 
+  // 索引状态（前端用于显示「正在加载文档索引…」提示）
+  if (pathname === '/api/status' && req.method === 'GET') {
+    return sendJson(res, 200, {
+      ok: true,
+      indexing,
+      progress: indexer && indexer.progress ? indexer.progress : null,
+      docs: indexer ? indexer.docs.size : 0,
+      tokens: indexer ? indexer.index.size : 0,
+    });
+  }
+
   if (pathname === '/api/stats' && req.method === 'GET') {
     return sendJson(res, 200, { notesDir: config.notesDir, stats: indexer.stats() });
   }

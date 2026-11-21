@@ -27,10 +27,10 @@
     background: #fafbfc;
     font-size: 13px;
   }
-  #name { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+  #name { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
   #dirty { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex: 0 0 auto; }
   #dirty.on { background: #f59e0b; }
-  #status { color: var(--muted); }
+  #status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #status.err { color: var(--danger); }
   #status.ok { color: var(--ok); }
   .spacer { flex: 1; }
@@ -42,9 +42,41 @@
     padding: 5px 14px;
     font-size: 13px;
     cursor: pointer;
+    white-space: nowrap;
   }
   #btn-save:disabled { opacity: .5; cursor: default; }
   #btn-save:hover:not(:disabled) { filter: brightness(1.05); }
+  #tabs {
+    flex: 0 0 auto;
+    display: none;
+    align-items: stretch;
+    gap: 2px;
+    padding: 0 10px;
+    background: #f1f3f5;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  #tabs.show { display: flex; }
+  .tab {
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    color: #4b5563;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-top: 4px;
+  }
+  .tab:hover { background: #e5e7eb; }
+  .tab.active {
+    background: #fff;
+    border-color: var(--border);
+    color: #111827;
+    font-weight: 600;
+  }
   #frame { flex: 1; width: 100%; border: none; display: block; }
 </style>
 </head>
@@ -56,6 +88,7 @@
     <span class="spacer"></span>
     <button id="btn-save" disabled>保存</button>
   </div>
+  <div id="tabs"></div>
   <iframe id="frame" src="vendor/drawio/drawio_demo.html" allow="clipboard-read; clipboard-write"></iframe>
 
 <script>
@@ -69,14 +102,18 @@
   const statusEl = document.getElementById('status');
   const dirtyEl = document.getElementById('dirty');
   const saveBtn = document.getElementById('btn-save');
+  const tabsEl = document.getElementById('tabs');
 
   let ready = false;
   let loaded = false;
   let loading = false;
+  let switching = false;
   let dirty = false;
-  let saving = false;
   let saveTimer = null;
   let pendingSave = null;   // Promise 复用，避免并发 getFileData
+  let latestXml = '';       // 最近一次与服务端一致的完整 .drawio 内容
+  let pages = [];           // [{ name }]
+  let pageIndex = 0;
 
   function setStatus(text, kind) {
     statusEl.textContent = text;
@@ -92,7 +129,71 @@
   function apiUrl() {
     return '/api/drawio?rel=' + encodeURIComponent(rel) + (dir ? '&dir=' + encodeURIComponent(dir) : '');
   }
+  function baseName() {
+    return (rel.split('/').pop() || 'diagram.drawio');
+  }
 
+  // ---------- 多页 ----------
+  function parsePages(xml) {
+    try {
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      const root = doc.documentElement;
+      if (!root || root.nodeName !== 'mxfile') return [{ name: 'Page-1' }];
+      const list = [];
+      for (let n = root.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 1 && n.nodeName === 'diagram') list.push(n);
+      }
+      return list.length
+        ? list.map((d, i) => ({ name: d.getAttribute('name') || ('第 ' + (i + 1) + ' 页') }))
+        : [{ name: 'Page-1' }];
+    } catch {
+      return [{ name: 'Page-1' }];
+    }
+  }
+
+  function renderTabs() {
+    if (pages.length <= 1) {
+      tabsEl.classList.remove('show');
+      tabsEl.innerHTML = '';
+      return;
+    }
+    tabsEl.classList.add('show');
+    tabsEl.innerHTML = pages.map((p, i) =>
+      '<button class="tab' + (i === pageIndex ? ' active' : '') + '" data-index="' + i + '">' +
+      p.name.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])) +
+      '</button>'
+    ).join('');
+  }
+
+  function refreshPages() {
+    pages = parsePages(latestXml || '');
+    if (pageIndex >= pages.length) pageIndex = Math.max(0, pages.length - 1);
+    renderTabs();
+  }
+
+  tabsEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    const idx = Number(btn.getAttribute('data-index'));
+    if (!Number.isFinite(idx) || idx === pageIndex || switching || !loaded) return;
+    switching = true;
+    try {
+      if (dirty) {
+        const ok = await requestSave();
+        if (!ok) { switching = false; return; }
+      }
+      pageIndex = idx;
+      renderTabs();
+      setStatus('切换到「' + (pages[idx] ? pages[idx].name : '第 ' + (idx + 1) + ' 页') + '」…');
+      post({ eventName: 'setFileData', value: latestXml, pageIndex: idx, name: baseName().replace(/\.draw\.?io$/i, '') });
+    } catch (err) {
+      setStatus('切换页面失败：' + err.message, 'err');
+    } finally {
+      switching = false;
+    }
+  });
+
+  // ---------- 读取 / 保存 ----------
   function loadFile() {
     if (loading || loaded) return;
     loading = true;
@@ -108,9 +209,11 @@
         return JSON.parse(text);
       })
       .then((d) => {
+        latestXml = d.content || '';
+        refreshPages();
         nameEl.textContent = (d.relPath || rel).split('/').pop();
         document.title = nameEl.textContent + ' · draw.io';
-        post({ eventName: 'setFileData', value: d.content, name: nameEl.textContent.replace(/\.draw\.?io$/i, '') });
+        post({ eventName: 'setFileData', value: latestXml, pageIndex: pageIndex, name: nameEl.textContent.replace(/\.draw\.?io$/i, '') });
       })
       .catch((e) => {
         loading = false;
@@ -133,7 +236,6 @@
           return;
         }
         const xml = (d.value && d.value.xmlData) || '';
-        saving = true;
         setStatus('保存中…');
         fetch('/api/drawio', {
           method: 'PUT',
@@ -147,6 +249,8 @@
               try { msg = JSON.parse(text).error || text; } catch {}
               throw new Error(msg || ('HTTP ' + r.status));
             }
+            latestXml = xml;
+            refreshPages();
             const t = new Date();
             const hh = String(t.getHours()).padStart(2, '0');
             const mm = String(t.getMinutes()).padStart(2, '0');
@@ -159,7 +263,7 @@
             setStatus('保存失败：' + e.message, 'err');
             resolve(false);
           })
-          .finally(() => { saving = false; saveBtn.disabled = false; });
+          .finally(() => { saveBtn.disabled = false; });
       };
       window.addEventListener('message', onMsg);
       post({ eventName: 'getFileData' });
@@ -173,6 +277,29 @@
       saveTimer = null;
       requestSave();
     }, delay == null ? 1500 : delay);
+  }
+
+  function downloadCurrent() {
+    if (!ready || !loaded) return;
+    const ask = () => {
+      const onMsg = (ev) => {
+        const d = ev.data || {};
+        if (d.eventName !== 'getFileData:success') return;
+        window.removeEventListener('message', onMsg);
+        const xml = (d.value && d.value.xmlData) || '';
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = baseName();
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        setStatus('已导出 ' + a.download, 'ok');
+      };
+      window.addEventListener('message', onMsg);
+      post({ eventName: 'getFileData' });
+    };
+    if (dirty) { requestSave().then(() => ask()); } else { ask(); }
   }
 
   saveBtn.addEventListener('click', () => {
@@ -196,13 +323,11 @@
         loadFile();
         break;
       case 'setFileData:success':
-        if (!loaded) {
-          loaded = true;
-          loading = false;
-          setDirty(false);
-          setStatus('可直接编辑，修改会自动保存', 'ok');
-          saveBtn.disabled = false;
-        }
+        loaded = true;
+        loading = false;
+        setDirty(false);
+        setStatus(pages.length > 1 ? ('第 ' + (pageIndex + 1) + ' / ' + pages.length + ' 页 · 修改会自动保存') : '可直接编辑，修改会自动保存', 'ok');
+        saveBtn.disabled = false;
         break;
       case 'setFileData:error':
         loading = false;
@@ -213,6 +338,13 @@
         setDirty(true);
         setStatus('未保存…');
         scheduleSave();
+        break;
+      case 'requestSave':
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        requestSave();
+        break;
+      case 'requestDownload':
+        downloadCurrent();
         break;
       default:
         break;

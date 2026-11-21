@@ -100,6 +100,7 @@ class Indexer {
     this.docs = new Map();   // key -> doc
     this.index = new Map();  // token  -> Map(key -> {t,g,h,b})
     this.errors = [];
+    this.progress = null;
   }
 
   // 索引 key <-> 绝对路径；不在索引范围内的文件返回 null（不参与索引）
@@ -631,10 +632,13 @@ class Indexer {
 
   async scanAsync() {
     const files = await this._walkAsync();
+    this.progress = { phase: 'index', done: 0, total: files.length };
     for (let i = 0; i < files.length; i++) {
       this._indexFile(files[i]);
+      this.progress.done = i + 1;
       if (i % 4 === 3) await new Promise((r) => setImmediate(r));
     }
+    this.progress = null;
     return {
       total: this.docs.size,
       errors: this.errors.length,
@@ -647,6 +651,8 @@ class Indexer {
     const currentPaths = new Set();
     let added = 0, updated = 0, removed = 0;
     let n = 0;
+    this.progress = { phase: 'diff', done: 0, total: this.docs.size + files.length };
+    let checked = 0;
     for (const [relPath, doc] of this.docs) {
       const absPath = this.absFor(relPath);
       let st = null;
@@ -662,7 +668,10 @@ class Indexer {
         this._indexFile(absPath);
         updated++;
       }
-      if (++n % 50 === 0) await new Promise((r) => setImmediate(r));
+      if (++checked % 50 === 0) {
+        this.progress.done = checked;
+        await new Promise((r) => setImmediate(r));
+      }
     }
     for (let i = 0; i < files.length; i++) {
       const absPath = files[i];
@@ -673,7 +682,9 @@ class Indexer {
         added++;
         if (i % 4 === 3) await new Promise((r) => setImmediate(r));
       }
+      this.progress.done = checked + i + 1;
     }
+    this.progress = null;
     return { total: this.docs.size, added, updated, removed, errors: this.errors.length };
   }
 
