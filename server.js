@@ -334,9 +334,9 @@ function startIndexingInBackground() {
   }, 1000);
   if (tick.unref) tick.unref();
   // 让当前事件循环先完成监听与首屏响应，再开始重活
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
-      const info = rebuildIndexer(true);
+      const info = await rebuildIndexerAsync(true);
       const cost = ((Date.now() - t0) / 1000).toFixed(1);
       console.log(`[Cognote] 扫描完成: ${info.total} 篇笔记${info.added ? `, 新增 ${info.added}` : ''}${info.updated ? `, 更新 ${info.updated}` : ''}${info.removed ? `, 删除 ${info.removed}` : ''}${info.errors ? `, ${info.errors} 个读取错误` : ''}（用时 ${cost}s）`);
     } catch (err) {
@@ -401,6 +401,53 @@ function rebuildIndexer(incremental = false) {
   initReview();
   // 扫描后保存索引
   try { indexer.save(INDEX_PATH); } catch {}
+  return info;
+}
+
+// 异步版索引构建：与 rebuildIndexer 逻辑一致，但遍历/加载/保存都分批让出事件循环，
+// 保证后台建索引期间 HTTP 服务（打开笔记、列表、draw.io）保持流畅。
+async function rebuildIndexerAsync(incremental = false) {
+  let dirs = effectiveDirs();
+  dirs = dirs.filter((d, i, arr) => !arr.some((o, j) => j !== i && path.resolve(d).startsWith(path.resolve(o) + path.sep)));
+  if (!dirs.length) {
+    const scanDir = path.join(EXE_DIR, '.empty-notes');
+    try { fs.mkdirSync(scanDir, { recursive: true }); } catch {}
+    dirs = [scanDir];
+  }
+  config.notesDir = dirs[0];
+  const scope = indexScopeFor(dirs);
+  indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs, scope });
+  console.log(`[Cognote] 索引范围: ${indexer.scope.length} 个目录${indexer.prefixActive ? '（key 带目录前缀）' : ''}`);
+  if (incremental && fs.existsSync(INDEX_PATH)) {
+    const loadResult = await indexer.loadAsync(INDEX_PATH);
+    if (loadResult.ok && scopeEquals(loadResult.scope || [indexer.notesDir], indexer.scope)) {
+      console.log(`[Cognote] 已加载缓存索引: ${loadResult.docs} 篇笔记, ${loadResult.tokens} 个词元`);
+      const info = await indexer.incrementalScanAsync();
+      search = new SearchEngine(indexer);
+      initReview();
+      await indexer.saveAsync(INDEX_PATH);
+      return info;
+    }
+    if (loadResult.ok) {
+      const oldScope = loadResult.scope || [indexer.notesDir];
+      const addOnly = oldScope.every((d) => indexer.scope.some((s) => path.resolve(s) === path.resolve(d)));
+      const removeOnly = indexer.scope.every((s) => oldScope.some((d) => path.resolve(d) === path.resolve(s)));
+      if ((addOnly || removeOnly) && indexer.rekeyForScope(oldScope)) {
+        console.log('[Cognote] 索引范围已扩展，已迁移缓存索引的前缀（无需全量重读）');
+        const info = await indexer.incrementalScanAsync();
+        search = new SearchEngine(indexer);
+        initReview();
+        await indexer.saveAsync(INDEX_PATH);
+        return info;
+      }
+      console.log('[Cognote] 索引范围已变化，忽略缓存并全量重建索引');
+      indexer = new Indexer(dirs[0], { ...config.index, ignoreDirs: config.index.ignoreDirs, scope });
+    }
+  }
+  const info = await indexer.scanAsync();
+  search = new SearchEngine(indexer);
+  initReview();
+  try { await indexer.saveAsync(INDEX_PATH); } catch {}
   return info;
 }
 
@@ -670,7 +717,7 @@ async function handleApi(pathname, req, res, url) {
     if (next.enabled) {
       try { fs.mkdirSync(cloudDirPath(), { recursive: true }); } catch {}
     }
-    rebuildIndexer();
+    await rebuildIndexerAsync();
     cloudSync.startTimer();
     if (next.enabled && next.url && next.token) cloudSync.scheduleSoon(500);
     return sendJson(res, 200, { ok: true, ping, cloud: cloudPublicConfig() });
@@ -869,7 +916,7 @@ async function handleApi(pathname, req, res, url) {
       ai: config.ai,
       index: config.index,
     });
-    rebuildIndexer();
+    await rebuildIndexerAsync();
     cloudSync.startTimer();
     return sendJson(res, 200, publicConfig());
   }
@@ -884,7 +931,7 @@ async function handleApi(pathname, req, res, url) {
   }
 
   if (pathname === '/api/rescan' && req.method === 'POST') {
-    const info = rebuildIndexer();
+    const info = await rebuildIndexerAsync();
     return sendJson(res, 200, { ok: true, info });
   }
 

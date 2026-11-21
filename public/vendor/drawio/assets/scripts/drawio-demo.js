@@ -96,7 +96,11 @@ function loadDrawioFile(xml, fallbackName) {
   window.__drawioSuppressChange = true;
   try {
     editorUIInstance.editor.setGraphXml(null);
-    editorUIInstance.editor.graph.importGraphModel(model);
+    // importGraphModel 会用 mxCodec 扫描「整个 ownerDocument」，
+    // 多页 .drawio 里各页单元格 id 重复（0/1/2…）会抛 "xx: Duplicate ID"。
+    // 因此把当前页的 mxGraphModel 重新序列化成独立文档再导入。
+    var isolated = mxUtils.parseXml(mxUtils.getXml(model));
+    editorUIInstance.editor.graph.importGraphModel(isolated.documentElement);
     editorUIInstance.editor.setFilename(window.__drawioFile.name);
   } finally {
     window.__drawioSuppressChange = false;

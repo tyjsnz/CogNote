@@ -579,6 +579,199 @@ class Indexer {
     }
     return { nodes, edges };
   }
+
+  // ---------- 异步版本（启动后台建索引用：分批让出事件循环，UI 不卡） ----------
+  async _walkAsync() {
+    const out = [];
+    const stack = [...this.scope];
+    const visited = new Set();
+    let n = 0;
+    while (stack.length) {
+      const dir = stack.pop();
+      let entries;
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (this.isIgnoredDir(e.name)) continue;
+          stack.push(full);
+        } else if (e.isFile() && ALL_SUPPORTED_RE.test(e.name)) {
+          out.push(full);
+        } else if (e.isSymbolicLink()) {
+          let st;
+          try {
+            st = await fsp.stat(full);
+          } catch {
+            continue;
+          }
+          if (st.isDirectory()) {
+            if (this.isIgnoredDir(e.name)) continue;
+            let real;
+            try {
+              real = await fsp.realpath(full);
+            } catch {
+              real = full;
+            }
+            if (visited.has(real)) continue;
+            visited.add(real);
+            stack.push(full);
+          } else if (st.isFile() && ALL_SUPPORTED_RE.test(e.name)) {
+            out.push(full);
+          }
+        }
+        if (++n % 400 === 0) await new Promise((r) => setImmediate(r));
+      }
+    }
+    return out;
+  }
+
+  async scanAsync() {
+    const files = await this._walkAsync();
+    for (let i = 0; i < files.length; i++) {
+      this._indexFile(files[i]);
+      if (i % 4 === 3) await new Promise((r) => setImmediate(r));
+    }
+    return {
+      total: this.docs.size,
+      errors: this.errors.length,
+      ignoredDirs: this.ignoreDirs.size,
+    };
+  }
+
+  async incrementalScanAsync() {
+    const files = await this._walkAsync();
+    const currentPaths = new Set();
+    let added = 0, updated = 0, removed = 0;
+    let n = 0;
+    for (const [relPath, doc] of this.docs) {
+      const absPath = this.absFor(relPath);
+      let st = null;
+      try {
+        st = await fsp.stat(absPath);
+      } catch {
+        st = null;
+      }
+      if (!st) {
+        this._removeDoc(relPath);
+        removed++;
+      } else if (Math.abs(st.mtimeMs - doc.mtimeMs) > 100) {
+        this._indexFile(absPath);
+        updated++;
+      }
+      if (++n % 50 === 0) await new Promise((r) => setImmediate(r));
+    }
+    for (let i = 0; i < files.length; i++) {
+      const absPath = files[i];
+      const relPath = this.keyForAbs(absPath);
+      currentPaths.add(relPath);
+      if (!this.docs.has(relPath)) {
+        this._indexFile(absPath);
+        added++;
+        if (i % 4 === 3) await new Promise((r) => setImmediate(r));
+      }
+    }
+    return { total: this.docs.size, added, updated, removed, errors: this.errors.length };
+  }
+
+  async loadAsync(indexPath) {
+    try {
+      const raw = await fsp.readFile(indexPath, 'utf8');
+      const data = JSON.parse(raw);
+      if (!data.docs || !data.index) return { ok: false, error: '索引格式无效' };
+      if (!data.version || data.version < 2) return { ok: false, error: '索引缓存版本过旧' };
+      this.docs.clear();
+      this.index.clear();
+      let n = 0;
+      for (const [relPath, d] of Object.entries(data.docs)) {
+        this.docs.set(relPath, {
+          relPath: d.relPath,
+          title: d.title,
+          tags: d.tags,
+          size: d.size,
+          mtimeMs: d.mtimeMs,
+          headings: d.headings,
+          links: d.links || [],
+          titleT: new Map(d.titleT),
+          tagT: new Map(d.tagT),
+          headT: new Map(d.headT),
+          bodyT: new Map(d.bodyT),
+          placeholder: !!d.placeholder,
+        });
+        if (++n % 200 === 0) await new Promise((r) => setImmediate(r));
+      }
+      n = 0;
+      for (const [token, entries] of Object.entries(data.index)) {
+        this.index.set(token, new Map(entries));
+        if (++n % 500 === 0) await new Promise((r) => setImmediate(r));
+      }
+      return {
+        ok: true,
+        docs: this.docs.size,
+        tokens: this.index.size,
+        savedAt: data.savedAt,
+        scope: Array.isArray(data.scope) ? data.scope : null,
+      };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  // 流式写盘：分批写出，避免一次性 JSON.stringify 上百 MB 长时间阻塞
+  async saveAsync(indexPath) {
+    const stream = fs.createWriteStream(indexPath, 'utf8');
+    let streamErr = null;
+    stream.on('error', (e) => { streamErr = e; });
+    const write = (s) => new Promise((resolve) => {
+      if (stream.write(s)) resolve();
+      else stream.once('drain', resolve);
+    });
+    const yieldNow = () => new Promise((r) => setImmediate(r));
+    try {
+      await write('{"version":2,"savedAt":' + Date.now() + ',"scope":' + JSON.stringify(this.scope) + ',"docs":{');
+      let n = 0;
+      let first = true;
+      for (const [relPath, doc] of this.docs) {
+        const item = {
+          relPath: doc.relPath,
+          title: doc.title,
+          tags: doc.tags,
+          size: doc.size,
+          mtimeMs: doc.mtimeMs,
+          headings: doc.headings,
+          links: doc.links || [],
+          titleT: [...doc.titleT.entries()],
+          tagT: [...doc.tagT.entries()],
+          headT: [...doc.headT.entries()],
+          bodyT: [...doc.bodyT.entries()],
+          placeholder: !!doc.placeholder,
+        };
+        await write((first ? '' : ',') + JSON.stringify(relPath) + ':' + JSON.stringify(item));
+        first = false;
+        if (++n % 100 === 0) await yieldNow();
+        if (streamErr) throw streamErr;
+      }
+      await write('},"index":{');
+      n = 0;
+      first = true;
+      for (const [token, map] of this.index) {
+        await write((first ? '' : ',') + JSON.stringify(token) + ':' + JSON.stringify([...map.entries()]));
+        first = false;
+        if (++n % 500 === 0) await yieldNow();
+        if (streamErr) throw streamErr;
+      }
+      await write('}}');
+      await new Promise((resolve, reject) => stream.end((err) => (err ? reject(err) : resolve())));
+      if (streamErr) throw streamErr;
+      return { ok: true, docs: this.docs.size, tokens: this.index.size };
+    } catch (err) {
+      try { stream.destroy(); } catch {}
+      return { ok: false, error: err.message };
+    }
+  }
 }
 
 module.exports = { Indexer, parseFrontmatter, extractTitle };
