@@ -1,5 +1,32 @@
 # 开发日志
 
+## 2026-11-21
+
+### v1.1.2：draw.io 二次编辑空画布修复
+
+- **症状**：A 设备创建/编辑过的 draw.io 图，同步到 B 设备后点击图片再编辑，
+  draw.io 打开是**空画布**（图已画的内容看不到，再画会覆盖原图）
+- **根因（编码不对称）**：`data-xml` 写入侧存在两种编码——新建插入用 `encodeURI`
+  （首次编辑正常），二次编辑保存用 `encodeURIComponent`；而读取侧一律 `decodeURI`，
+  无法还原 `encodeURIComponent` 转义的保留字符（`=`→`%3D`、`/`→`%2F` 等残留）→
+  送进 draw.io 的是畸形 XML → `mxUtils.parseXml` 解析失败 → 画布保持空。
+  **任何设备只要在同一篇笔记上保存过一次编辑，之后点击编辑必然空画布**
+  （与同步无关，同步只是把文件带到了另一台设备上被发现）
+- **修复**（`public/vendor/cherry/dist/cherry-markdown.min.js`）：
+  - 读取侧 `decodeURI` → `decodeURIComponent`：**同时兼容历史两种存储形态**，
+    已同步的存量笔记无需任何迁移
+  - 新建插入侧 `encodeURI` → `encodeURIComponent`：写入形态统一
+  - `drawio-demo.js` 的 `setData` 加固：try/catch + `parsererror` 检测 + 控制台告警，
+    畸形 XML 不再让 message 监听器静默抛错挂起（仍应答 `setData:success`）
+- **验证**：E2E 复现（真实笔记图片行构造两种存储形态）——修复前
+  `encodeURIComponent` 形态画布仅 2 个根节点（空）、`encodeURI` 形态 14 节点正常；
+  修复后两种形态均 14 节点带内容，`mxCodec` 告警消失；补丁两处均唯一命中、
+  `node --check` 语法通过
+- **回归守卫**：新增 `scripts/test-drawio-encoding.js`（10 项断言）——静态校验
+  Cherry 读写两侧的编码实现 + `drawio-demo.js` 的失败保护 + 编解码对称性，
+  防止后续升级 vendor 时被覆盖回旧版本
+- **回归测试**：云端同步三件套 94 断言全绿（E2EE 52 / 回归 31 / UI 冒烟 11）
+
 ## 2026-11-17
 
 ### v1.1.1：云端乱码事故修复 + 同步状态自愈

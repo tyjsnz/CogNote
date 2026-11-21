@@ -50,8 +50,17 @@ function addPostMessageListener(graphEditor) {
         // 新建图表时 Cherry 传空串：直接清空画布，避免 parseXml('') 触发 mxCodec 告警
         editorUIInstance.editor.setGraphXml(null);
         if (value) {
-          var doc = mxUtils.parseXml(value);
-          graphEditor.graph.importGraphModel(doc.documentElement);
+          try {
+            var doc = mxUtils.parseXml(value);
+            if (!doc.documentElement || doc.documentElement.nodeName === 'parsererror') {
+              throw new Error('invalid xml: ' + String(value).slice(0, 120));
+            }
+            graphEditor.graph.importGraphModel(doc.documentElement);
+          } catch (error) {
+            // 历史版本曾以错误编码写入 data-xml（decodeURI 无法还原 encodeURIComponent），
+            // 解析失败时保持空画布并告警，绝不让 message 监听器静默抛错挂起
+            console.warn('[drawio] setData 解析失败，画布保持为空:', error);
+          }
         }
         var documentName = 'cherry-drawio-' + new Date().getTime();
         graphEditor.setFilename(documentName);
